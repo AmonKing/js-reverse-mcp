@@ -6,6 +6,7 @@
 
 import {zod} from '../third_party/index.js';
 import type {JSHandle} from '../third_party/index.js';
+import {formatError} from '../utils/format.js';
 
 import {ToolCategory} from './categories.js';
 import {defineTool} from './ToolDefinition.js';
@@ -83,8 +84,7 @@ Example with arguments: \`(el) => {
         }
       });
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = formatError(error);
       response.appendResponseLine(`Script error: ${errorMessage}`);
 
       // Add helpful context for common errors

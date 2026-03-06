@@ -15,6 +15,7 @@
  */
 
 import {zod} from '../third_party/index.js';
+import {formatError} from '../utils/format.js';
 
 import {ToolCategory} from './categories.js';
 import {defineTool} from './ToolDefinition.js';
@@ -196,7 +197,7 @@ export const getScriptSource = defineTool({
       }
     } catch (error) {
       response.appendResponseLine(
-        `Error getting script source: ${error instanceof Error ? error.message : String(error)}`,
+        `Error getting script source: ${formatError(error)}`,
       );
     }
   },
@@ -334,7 +335,7 @@ export const findInScript = defineTool({
       );
     } catch (error) {
       response.appendResponseLine(
-        `Error: ${error instanceof Error ? error.message : String(error)}`,
+        `Error: ${formatError(error)}`,
       );
     }
   },
@@ -515,7 +516,7 @@ export const searchInSources = defineTool({
       );
     } catch (error) {
       response.appendResponseLine(
-        `Error searching: ${error instanceof Error ? error.message : String(error)}`,
+        `Error searching: ${formatError(error)}`,
       );
     }
   },
@@ -608,7 +609,7 @@ export const setBreakpoint = defineTool({
       }
     } catch (error) {
       response.appendResponseLine(
-        `Error setting breakpoint: ${error instanceof Error ? error.message : String(error)}`,
+        `Error setting breakpoint: ${formatError(error)}`,
       );
     }
   },
@@ -652,7 +653,7 @@ export const removeBreakpoint = defineTool({
       );
     } catch (error) {
       response.appendResponseLine(
-        `Error removing breakpoint: ${error instanceof Error ? error.message : String(error)}`,
+        `Error removing breakpoint: ${formatError(error)}`,
       );
     }
   },
@@ -793,7 +794,7 @@ export const getRequestInitiator = defineTool({
       }
     } catch (error) {
       response.appendResponseLine(
-        `Error getting initiator: ${error instanceof Error ? error.message : String(error)}`,
+        `Error getting initiator: ${formatError(error)}`,
       );
     }
   },
@@ -956,7 +957,7 @@ export const resume = defineTool({
       response.appendResponseLine('▶️ Execution resumed.');
     } catch (error) {
       response.appendResponseLine(
-        `Error resuming: ${error instanceof Error ? error.message : String(error)}`,
+        `Error resuming: ${formatError(error)}`,
       );
     }
   },
@@ -997,7 +998,7 @@ export const pause = defineTool({
       );
     } catch (error) {
       response.appendResponseLine(
-        `Error pausing: ${error instanceof Error ? error.message : String(error)}`,
+        `Error pausing: ${formatError(error)}`,
       );
     }
   },
@@ -1038,7 +1039,7 @@ export const stepOver = defineTool({
       );
     } catch (error) {
       response.appendResponseLine(
-        `Error stepping over: ${error instanceof Error ? error.message : String(error)}`,
+        `Error stepping over: ${formatError(error)}`,
       );
     }
   },
@@ -1079,7 +1080,7 @@ export const stepInto = defineTool({
       );
     } catch (error) {
       response.appendResponseLine(
-        `Error stepping into: ${error instanceof Error ? error.message : String(error)}`,
+        `Error stepping into: ${formatError(error)}`,
       );
     }
   },
@@ -1120,7 +1121,7 @@ export const stepOut = defineTool({
       );
     } catch (error) {
       response.appendResponseLine(
-        `Error stepping out: ${error instanceof Error ? error.message : String(error)}`,
+        `Error stepping out: ${formatError(error)}`,
       );
     }
   },
@@ -1212,7 +1213,7 @@ export const evaluateOnCallframe = defineTool({
       }
     } catch (error) {
       response.appendResponseLine(
-        `Error evaluating: ${error instanceof Error ? error.message : String(error)}`,
+        `Error evaluating: ${formatError(error)}`,
       );
     }
   },
@@ -1368,7 +1369,7 @@ export const setBreakpointOnText = defineTool({
       response.appendResponseLine('```');
     } catch (error) {
       response.appendResponseLine(
-        `Error: ${error instanceof Error ? error.message : String(error)}`,
+        `Error: ${formatError(error)}`,
       );
     }
   },
@@ -1552,7 +1553,7 @@ export const hookFunction = defineTool({
       }
     } catch (error) {
       response.appendResponseLine(
-        `Error: ${error instanceof Error ? error.message : String(error)}`,
+        `Error: ${formatError(error)}`,
       );
     }
   },
@@ -1609,7 +1610,7 @@ export const unhookFunction = defineTool({
       }
     } catch (error) {
       response.appendResponseLine(
-        `Error: ${error instanceof Error ? error.message : String(error)}`,
+        `Error: ${formatError(error)}`,
       );
     }
   },
@@ -1656,7 +1657,7 @@ export const listHooks = defineTool({
       }
     } catch (error) {
       response.appendResponseLine(
-        `Error: ${error instanceof Error ? error.message : String(error)}`,
+        `Error: ${formatError(error)}`,
       );
     }
   },
@@ -1799,7 +1800,7 @@ export const inspectObject = defineTool({
       response.appendResponseLine('```');
     } catch (error) {
       response.appendResponseLine(
-        `Error: ${error instanceof Error ? error.message : String(error)}`,
+        `Error: ${formatError(error)}`,
       );
     }
   },
@@ -1909,7 +1910,7 @@ export const getStorage = defineTool({
       response.appendResponseLine('```');
     } catch (error) {
       response.appendResponseLine(
-        `Error: ${error instanceof Error ? error.message : String(error)}`,
+        `Error: ${formatError(error)}`,
       );
     }
   },
@@ -1958,7 +1959,7 @@ export const breakOnXhr = defineTool({
       );
     } catch (error) {
       response.appendResponseLine(
-        `Error: ${error instanceof Error ? error.message : String(error)}`,
+        `Error: ${formatError(error)}`,
       );
     }
   },
@@ -2001,7 +2002,7 @@ export const removeXhrBreakpoint = defineTool({
       response.appendResponseLine(`✅ XHR breakpoint removed for: "${url}"`);
     } catch (error) {
       response.appendResponseLine(
-        `Error: ${error instanceof Error ? error.message : String(error)}`,
+        `Error: ${formatError(error)}`,
       );
     }
   },
@@ -2136,7 +2137,7 @@ export const monitorEvents = defineTool({
       }
     } catch (error) {
       response.appendResponseLine(
-        `Error: ${error instanceof Error ? error.message : String(error)}`,
+        `Error: ${formatError(error)}`,
       );
     }
   },
@@ -2191,7 +2192,7 @@ export const stopMonitor = defineTool({
       }
     } catch (error) {
       response.appendResponseLine(
-        `Error: ${error instanceof Error ? error.message : String(error)}`,
+        `Error: ${formatError(error)}`,
       );
     }
   },
@@ -2407,7 +2408,7 @@ export const traceFunction = defineTool({
       }
     } catch (error) {
       response.appendResponseLine(
-        `Error: ${error instanceof Error ? error.message : String(error)}`,
+        `Error: ${formatError(error)}`,
       );
     }
   },

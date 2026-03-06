@@ -18,6 +18,7 @@ import {loadIssueDescriptions} from './issue-descriptions.js';
 import {logger, saveLogsToFile} from './logger.js';
 import {McpContext} from './McpContext.js';
 import {McpResponse} from './McpResponse.js';
+import {formatError} from './utils/format.js';
 import {Mutex} from './Mutex.js';
 import {
   McpServer,
@@ -172,8 +173,7 @@ function registerTool(tool: ToolDefinition): void {
             content,
           };
         } catch (error) {
-          const errorText =
-            error instanceof Error ? error.message : String(error);
+          const errorText = formatError(error);
 
           return {
             content: [

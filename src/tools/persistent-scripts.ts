@@ -5,6 +5,7 @@
  */
 
 import {zod} from '../third_party/index.js';
+import {formatError, truncate} from '../utils/format.js';
 
 import {ToolCategory} from './categories.js';
 import {defineTool} from './ToolDefinition.js';
@@ -38,7 +39,7 @@ export const addPersistentScript = defineTool({
       response.appendResponseLine(`- Identifier: ${identifier}`);
       response.appendResponseLine(`- Label: ${label}`);
       response.appendResponseLine(
-        `- Code: ${code.substring(0, 100)}${code.length > 100 ? '...' : ''}`,
+        `- Code: ${truncate(code, 100)}`,
       );
       response.appendResponseLine('');
       response.appendResponseLine(
@@ -49,7 +50,7 @@ export const addPersistentScript = defineTool({
       );
     } catch (error) {
       response.appendResponseLine(
-        `Error: ${error instanceof Error ? error.message : String(error)}`,
+        `Error: ${formatError(error)}`,
       );
     }
   },
@@ -112,7 +113,7 @@ export const listPersistentScripts = defineTool({
       response.appendResponseLine(`- Identifier: ${script.identifier}`);
       response.appendResponseLine(`  Label: ${script.label}`);
       response.appendResponseLine(
-        `  Code: ${script.code.substring(0, 80)}${script.code.length > 80 ? '...' : ''}`,
+        `  Code: ${truncate(script.code, 80)}`,
       );
       response.appendResponseLine('');
     }

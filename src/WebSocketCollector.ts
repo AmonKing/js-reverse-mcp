@@ -7,11 +7,11 @@
 import type {RequestInitiator} from './PageCollector.js';
 import type {
   Browser,
-  CDPSession,
   Page,
   Protocol,
   Target,
 } from './third_party/index.js';
+import {getCdpClient} from './utils/cdp.js';
 
 /**
  * WebSocket connection status.
@@ -165,8 +165,7 @@ export class WebSocketCollector {
   }
 
   #setupCdpListeners(page: Page): void {
-    // @ts-expect-error _client is internal Puppeteer API
-    const client = page._client() as CDPSession;
+    const client = getCdpClient(page);
 
     const connectionMap = this.#connectionMap.get(page)!;
     const idGenerator = this.#idGenerators.get(page)!;
@@ -280,8 +279,7 @@ export class WebSocketCollector {
     const listeners = this.#cdpListeners.get(page);
     if (listeners) {
       try {
-        // @ts-expect-error _client is internal Puppeteer API
-        const client = page._client() as CDPSession;
+        const client = getCdpClient(page);
         client.off('Network.webSocketCreated', listeners.onCreated);
         client.off('Network.webSocketFrameSent', listeners.onFrameSent);
         client.off('Network.webSocketFrameReceived', listeners.onFrameReceived);

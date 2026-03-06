@@ -6,6 +6,7 @@
 
 import {logger} from './logger.js';
 import type {Page, Protocol, CdpPage} from './third_party/index.js';
+import {getCdpClient} from './utils/cdp.js';
 
 export class WaitForHelper {
   #abortController = new AbortController();
@@ -100,10 +101,10 @@ export class WaitForHelper {
         resolve(true);
       };
 
-      this.#page._client().on('Page.frameStartedNavigating', listener);
+      getCdpClient(this.#page).on('Page.frameStartedNavigating', listener);
       this.#abortController.signal.addEventListener('abort', () => {
         resolve(false);
-        this.#page._client().off('Page.frameStartedNavigating', listener);
+        getCdpClient(this.#page).off('Page.frameStartedNavigating', listener);
       });
     });
 

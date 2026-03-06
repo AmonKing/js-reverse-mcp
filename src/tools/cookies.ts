@@ -6,6 +6,7 @@
 
 import type {Protocol} from '../third_party/index.js';
 import {zod} from '../third_party/index.js';
+import {formatError} from '../utils/format.js';
 
 import {ToolCategory} from './categories.js';
 import type {Context} from './ToolDefinition.js';
@@ -90,7 +91,7 @@ export const getCookies = defineTool({
       }
     } catch (error) {
       response.appendResponseLine(
-        `Error: ${error instanceof Error ? error.message : String(error)}`,
+        `Error: ${formatError(error)}`,
       );
     }
   },
@@ -175,7 +176,7 @@ export const setCookie = defineTool({
       }
     } catch (error) {
       response.appendResponseLine(
-        `Error: ${error instanceof Error ? error.message : String(error)}`,
+        `Error: ${formatError(error)}`,
       );
     }
   },
@@ -219,7 +220,7 @@ export const deleteCookie = defineTool({
       );
     } catch (error) {
       response.appendResponseLine(
-        `Error: ${error instanceof Error ? error.message : String(error)}`,
+        `Error: ${formatError(error)}`,
       );
     }
   },

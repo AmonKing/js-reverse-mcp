@@ -19,7 +19,6 @@ import type {ListenerMap, RequestInitiator} from './PageCollector.js';
 import {Locator} from './third_party/index.js';
 import type {
   Browser,
-  CDPSession,
   ConsoleMessage,
   Debugger,
   Dialog,
@@ -30,6 +29,7 @@ import type {
   Protocol,
 } from './third_party/index.js';
 import {listPages} from './tools/pages.js';
+import {getCdpClient} from './utils/cdp.js';
 import {CLOSE_PAGE_ERROR} from './tools/ToolDefinition.js';
 import type {Context, DevToolsData} from './tools/ToolDefinition.js';
 import type {TraceResult} from './trace-processing/parse.js';
@@ -176,8 +176,7 @@ export class McpContext implements Context {
         // @ts-expect-error client is a public getter on Frame but not in all type definitions
         client = frame.client;
       } else {
-        // @ts-expect-error _client is internal Puppeteer API
-        client = page._client();
+        client = getCdpClient(page);
       }
       await this.#debuggerContext.enable(client);
       // FetchInterceptor is lazy-enabled: only re-enable on the new client
@@ -410,8 +409,7 @@ export class McpContext implements Context {
 
   async addPersistentScript(label: string, code: string): Promise<string> {
     const page = this.getSelectedPage();
-    // @ts-expect-error createCDPSession may not exist
-    const client = page._client();
+    const client = getCdpClient(page);
     const result = await client.send('Page.addScriptToEvaluateOnNewDocument', {
       source: code,
     });
@@ -422,8 +420,7 @@ export class McpContext implements Context {
 
   async removePersistentScript(identifier: string): Promise<boolean> {
     const page = this.getSelectedPage();
-    // @ts-expect-error internal API
-    const client = page._client();
+    const client = getCdpClient(page);
     try {
       await client.send('Page.removeScriptToEvaluateOnNewDocument', {identifier});
       this.#persistentScripts.delete(identifier);
@@ -439,8 +436,7 @@ export class McpContext implements Context {
 
   async getCookies(urls?: string[]): Promise<Protocol.Network.Cookie[]> {
     const page = this.getSelectedPage();
-    // @ts-expect-error internal API
-    const client = page._client() as CDPSession;
+    const client = getCdpClient(page);
     const params: Protocol.Network.GetCookiesRequest = {};
     if (urls && urls.length > 0) {
       params.urls = urls;
@@ -451,16 +447,14 @@ export class McpContext implements Context {
 
   async setCookie(cookie: Protocol.Network.CookieParam): Promise<boolean> {
     const page = this.getSelectedPage();
-    // @ts-expect-error internal API
-    const client = page._client() as CDPSession;
+    const client = getCdpClient(page);
     const result = await client.send('Network.setCookie', cookie);
     return result.success;
   }
 
   async deleteCookies(params: Protocol.Network.DeleteCookiesRequest): Promise<void> {
     const page = this.getSelectedPage();
-    // @ts-expect-error internal API
-    const client = page._client() as CDPSession;
+    const client = getCdpClient(page);
     await client.send('Network.deleteCookies', params);
   }
 

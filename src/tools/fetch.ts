@@ -5,6 +5,8 @@
  */
 
 import {zod} from '../third_party/index.js';
+import {getCdpClient} from '../utils/cdp.js';
+import {truncate} from '../utils/format.js';
 
 import {ToolCategory} from './categories.js';
 import {defineTool} from './ToolDefinition.js';
@@ -52,8 +54,7 @@ export const interceptRequest = defineTool({
     // Lazy enable: start interception on first rule
     if (!interceptor.isEnabled()) {
       const page = context.getSelectedPage();
-      // @ts-expect-error internal API
-      const client = page._client();
+      const client = getCdpClient(page);
       await interceptor.enable(client);
     }
 
@@ -75,7 +76,7 @@ export const interceptRequest = defineTool({
     response.appendResponseLine(`- Action: ${action}`);
     if (modifyBody) {
       response.appendResponseLine(
-        `- Modify Body: ${modifyBody.substring(0, 100)}${modifyBody.length > 100 ? '...' : ''}`,
+        `- Modify Body: ${truncate(modifyBody, 100)}`,
       );
     }
     if (modifyHeaders) {
@@ -145,7 +146,7 @@ export const listIntercepts = defineTool({
       }
       if (rule.modifyBody) {
         response.appendResponseLine(
-          `  Body: ${rule.modifyBody.substring(0, 80)}...`,
+          `  Body: ${truncate(rule.modifyBody, 80)}`,
         );
       }
       if (rule.modifyHeaders) {
@@ -205,7 +206,7 @@ export const getInterceptLogs = defineTool({
       );
       if (log.request.request.postData) {
         response.appendResponseLine(
-          `  Body: ${log.request.request.postData.substring(0, 120)}${log.request.request.postData.length > 120 ? '...' : ''}`,
+          `  Body: ${truncate(log.request.request.postData, 120)}`,
         );
       }
     }

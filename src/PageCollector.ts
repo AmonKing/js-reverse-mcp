@@ -18,6 +18,7 @@ import {
 import {FakeIssuesManager} from './DevtoolsUtils.js';
 import {features} from './features.js';
 import {logger} from './logger.js';
+import {getCdpClient} from './utils/cdp.js';
 import type {
   CDPSession,
   ConsoleMessage,
@@ -295,8 +296,7 @@ class PageIssueSubscriber {
 
   constructor(page: Page) {
     this.#page = page;
-    // @ts-expect-error use existing CDP client (internal Puppeteer API).
-    this.#session = this.#page._client() as CDPSession;
+    this.#session = getCdpClient(this.#page);
   }
 
   #resetIssueAggregator() {
@@ -440,8 +440,7 @@ export class NetworkCollector extends PageCollector<HTTPRequest> {
 
     this.#cdpListeners.set(page, onRequestWillBeSent);
 
-    // @ts-expect-error _client is internal Puppeteer API
-    const client = page._client() as CDPSession;
+    const client = getCdpClient(page);
     client.on('Network.requestWillBeSent', onRequestWillBeSent);
   }
 
@@ -451,8 +450,7 @@ export class NetworkCollector extends PageCollector<HTTPRequest> {
     const listener = this.#cdpListeners.get(page);
     if (listener) {
       try {
-        // @ts-expect-error _client is internal Puppeteer API
-        const client = page._client() as CDPSession;
+        const client = getCdpClient(page);
         client.off('Network.requestWillBeSent', listener);
       } catch {
         // Page might already be closed
