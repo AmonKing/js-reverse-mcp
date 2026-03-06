@@ -35,6 +35,9 @@ import * as screenshotTools from './tools/screenshot.js';
 import * as scriptTools from './tools/script.js';
 import type {ToolDefinition} from './tools/ToolDefinition.js';
 import * as websocketTools from './tools/websocket.js';
+import * as fetchTools from './tools/fetch.js';
+import * as persistentScriptTools from './tools/persistent-scripts.js';
+import * as cookieTools from './tools/cookies.js';
 
 // If moved update release-please config
 // x-release-please-start-version
@@ -200,8 +203,10 @@ const tools = [
   ...Object.values(pagesTools),
   ...Object.values(screenshotTools),
   ...Object.values(scriptTools),
-
   ...Object.values(websocketTools),
+  ...Object.values(fetchTools),
+  ...Object.values(persistentScriptTools),
+  ...Object.values(cookieTools),
 ] as ToolDefinition[];
 
 tools.sort((a, b) => {
