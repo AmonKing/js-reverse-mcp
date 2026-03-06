@@ -11,6 +11,7 @@ import path from 'node:path';
 import {type AggregatedIssue} from '../node_modules/chrome-devtools-frontend/mcp/mcp.js';
 
 import {DebuggerContext} from './DebuggerContext.js';
+import {FetchInterceptor} from './FetchInterceptor.js';
 import {extractUrlLikeFromDevToolsTitle, urlsEqual} from './DevtoolsUtils.js';
 import type {TrafficSummary} from './formatters/websocketFormatter.js';
 import {NetworkCollector, ConsoleCollector} from './PageCollector.js';
@@ -18,6 +19,7 @@ import type {ListenerMap, RequestInitiator} from './PageCollector.js';
 import {Locator} from './third_party/index.js';
 import type {
   Browser,
+  CDPSession,
   ConsoleMessage,
   Debugger,
   Dialog,
@@ -25,6 +27,7 @@ import type {
   HTTPRequest,
   Page,
   PredefinedNetworkConditions,
+  Protocol,
 } from './third_party/index.js';
 import {listPages} from './tools/pages.js';
 import {CLOSE_PAGE_ERROR} from './tools/ToolDefinition.js';
@@ -92,6 +95,7 @@ export class McpContext implements Context {
   #cpuThrottlingRateMap = new WeakMap<Page, number>();
   #dialog?: Dialog;
   #debuggerContext: DebuggerContext = new DebuggerContext();
+  #fetchInterceptor: FetchInterceptor = new FetchInterceptor();
   #selectedFrame?: Frame;
 
   #traceResults: TraceResult[] = [];
@@ -176,6 +180,7 @@ export class McpContext implements Context {
         client = page._client();
       }
       await this.#debuggerContext.enable(client);
+      await this.#fetchInterceptor.enable(client);
     } catch (error) {
       this.logger('Failed to initialize debugger context', error);
     }
@@ -186,6 +191,7 @@ export class McpContext implements Context {
     this.#consoleCollector.dispose();
     this.#webSocketCollector.dispose();
     void this.#debuggerContext.disable();
+    void this.#fetchInterceptor.disable();
   }
 
   /**
@@ -193,6 +199,10 @@ export class McpContext implements Context {
    */
   get debuggerContext(): DebuggerContext {
     return this.#debuggerContext;
+  }
+
+  get fetchInterceptor(): FetchInterceptor {
+    return this.#fetchInterceptor;
   }
 
   /**
@@ -388,6 +398,64 @@ export class McpContext implements Context {
     this.#selectedFrame = undefined;
     // Reinitialize debugger for the main page's CDP session
     void this.reinitDebugger();
+  }
+
+  #persistentScripts = new Map<string, {identifier: string; label: string; code: string}>();
+
+  async addPersistentScript(label: string, code: string): Promise<string> {
+    const page = this.getSelectedPage();
+    // @ts-expect-error createCDPSession may not exist
+    const client = page._client();
+    const result = await client.send('Page.addScriptToEvaluateOnNewDocument', {
+      source: code,
+    });
+    const identifier = result.identifier;
+    this.#persistentScripts.set(identifier, {identifier, label, code});
+    return identifier;
+  }
+
+  async removePersistentScript(identifier: string): Promise<boolean> {
+    const page = this.getSelectedPage();
+    // @ts-expect-error internal API
+    const client = page._client();
+    try {
+      await client.send('Page.removeScriptToEvaluateOnNewDocument', {identifier});
+      this.#persistentScripts.delete(identifier);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  getPersistentScripts(): Array<{identifier: string; label: string; code: string}> {
+    return Array.from(this.#persistentScripts.values());
+  }
+
+  async getCookies(urls?: string[]): Promise<Protocol.Network.Cookie[]> {
+    const page = this.getSelectedPage();
+    // @ts-expect-error internal API
+    const client = page._client() as CDPSession;
+    const params: Protocol.Network.GetCookiesRequest = {};
+    if (urls && urls.length > 0) {
+      params.urls = urls;
+    }
+    const result = await client.send('Network.getCookies', params);
+    return result.cookies;
+  }
+
+  async setCookie(cookie: Protocol.Network.CookieParam): Promise<boolean> {
+    const page = this.getSelectedPage();
+    // @ts-expect-error internal API
+    const client = page._client() as CDPSession;
+    const result = await client.send('Network.setCookie', cookie);
+    return result.success;
+  }
+
+  async deleteCookies(params: Protocol.Network.DeleteCookiesRequest): Promise<void> {
+    const page = this.getSelectedPage();
+    // @ts-expect-error internal API
+    const client = page._client() as CDPSession;
+    await client.send('Network.deleteCookies', params);
   }
 
   #updateSelectedPageTimeouts() {

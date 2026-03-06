@@ -5,10 +5,11 @@
  */
 
 import type {DebuggerContext} from '../DebuggerContext.js';
+import type {FetchInterceptor} from '../FetchInterceptor.js';
 import type {TrafficSummary} from '../formatters/websocketFormatter.js';
 import type {RequestInitiator} from '../PageCollector.js';
 import {zod} from '../third_party/index.js';
-import type {Dialog, Frame, HTTPRequest, Page} from '../third_party/index.js';
+import type {Dialog, Frame, HTTPRequest, Page, Protocol} from '../third_party/index.js';
 import type {TraceResult} from '../trace-processing/parse.js';
 import type {PaginationOptions} from '../utils/types.js';
 import type {WebSocketData} from '../WebSocketCollector.js';
@@ -168,6 +169,34 @@ export type Context = Readonly<{
    * Also reinitializes the debugger for the main page's CDP session.
    */
   resetSelectedFrame(): void;
+  /**
+   * Get the fetch interceptor for request interception.
+   */
+  fetchInterceptor: FetchInterceptor;
+  /**
+   * Add a persistent script that survives navigation.
+   */
+  addPersistentScript(label: string, code: string): Promise<string>;
+  /**
+   * Remove a persistent script.
+   */
+  removePersistentScript(identifier: string): Promise<boolean>;
+  /**
+   * Get all registered persistent scripts.
+   */
+  getPersistentScripts(): Array<{identifier: string; label: string; code: string}>;
+  /**
+   * Get cookies via CDP (includes httpOnly).
+   */
+  getCookies(urls?: string[]): Promise<Protocol.Network.Cookie[]>;
+  /**
+   * Set a cookie via CDP.
+   */
+  setCookie(cookie: Protocol.Network.CookieParam): Promise<boolean>;
+  /**
+   * Delete cookies via CDP.
+   */
+  deleteCookies(params: Protocol.Network.DeleteCookiesRequest): Promise<void>;
 }>;
 
 export function defineTool<Schema extends zod.ZodRawShape>(
