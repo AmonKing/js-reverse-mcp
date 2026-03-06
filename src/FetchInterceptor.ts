@@ -29,10 +29,18 @@ export interface PausedRequest {
   responseHeaders?: Array<{name: string; value: string}>;
 }
 
+function compileGlob(urlPattern: string): RegExp {
+  const pattern = urlPattern
+    .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '.*');
+  return new RegExp(pattern, 'i');
+}
+
 export class FetchInterceptor {
   #client: CDPSession | null = null;
   #enabled = false;
   #rules = new Map<string, InterceptRule>();
+  #compiledPatterns = new Map<string, RegExp>();
   #logs: Array<{timestamp: number; rule: string; request: PausedRequest; action: string}> = [];
   #maxLogs = 100;
 
@@ -42,14 +50,7 @@ export class FetchInterceptor {
     }
 
     // Clean up old client if switching
-    if (this.#enabled && this.#client) {
-      this.#client.off('Fetch.requestPaused', this.#onRequestPaused);
-      try {
-        await this.#client.send('Fetch.disable');
-      } catch {
-        // Old session may be gone
-      }
-    }
+    await this.detach();
 
     this.#client = client;
     client.on('Fetch.requestPaused', this.#onRequestPaused);
@@ -89,6 +90,7 @@ export class FetchInterceptor {
   async disable(): Promise<void> {
     await this.detach();
     this.#rules.clear();
+    this.#compiledPatterns.clear();
     this.#logs = [];
   }
 
@@ -100,24 +102,18 @@ export class FetchInterceptor {
     return this.#rules.size > 0;
   }
 
-  getClient(): CDPSession | null {
-    return this.#client;
-  }
-
   addRule(rule: InterceptRule): void {
     this.#rules.set(rule.id, rule);
+    this.#compiledPatterns.set(rule.id, compileGlob(rule.urlPattern));
   }
 
   removeRule(ruleId: string): boolean {
+    this.#compiledPatterns.delete(ruleId);
     return this.#rules.delete(ruleId);
   }
 
   getRules(): InterceptRule[] {
     return Array.from(this.#rules.values());
-  }
-
-  getRule(ruleId: string): InterceptRule | undefined {
-    return this.#rules.get(ruleId);
   }
 
   getLogs(): Array<{timestamp: number; rule: string; request: PausedRequest; action: string}> {
@@ -130,10 +126,7 @@ export class FetchInterceptor {
 
   #matchRule(url: string, resourceType: string): InterceptRule | undefined {
     for (const rule of this.#rules.values()) {
-      const pattern = rule.urlPattern
-        .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
-        .replace(/\*/g, '.*');
-      const regex = new RegExp(pattern, 'i');
+      const regex = this.#compiledPatterns.get(rule.id)!;
       if (regex.test(url)) {
         if (rule.resourceType && rule.resourceType !== resourceType) {
           continue;
@@ -149,6 +142,20 @@ export class FetchInterceptor {
       return;
     }
 
+    const rule = this.#matchRule(event.request.url, event.resourceType);
+
+    if (!rule) {
+      try {
+        await this.#client.send('Fetch.continueRequest', {
+          requestId: event.requestId,
+        });
+      } catch {
+        // Request may have been cancelled
+      }
+      return;
+    }
+
+    // Only allocate PausedRequest for matching rules (used in logs)
     const paused: PausedRequest = {
       requestId: event.requestId,
       request: {
@@ -162,19 +169,6 @@ export class FetchInterceptor {
       responseStatusCode: event.responseStatusCode,
       responseHeaders: event.responseHeaders,
     };
-
-    const rule = this.#matchRule(event.request.url, event.resourceType);
-
-    if (!rule) {
-      try {
-        await this.#client.send('Fetch.continueRequest', {
-          requestId: event.requestId,
-        });
-      } catch {
-        // Request may have been cancelled
-      }
-      return;
-    }
 
     this.#logs.push({
       timestamp: Date.now(),

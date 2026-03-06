@@ -4,10 +4,20 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import type {Protocol} from '../third_party/index.js';
 import {zod} from '../third_party/index.js';
 
 import {ToolCategory} from './categories.js';
+import type {Context} from './ToolDefinition.js';
 import {defineTool} from './ToolDefinition.js';
+
+function resolvePageDomain(context: Context): string | null {
+  const pageUrl = context.getSelectedPage().url();
+  if (!pageUrl || pageUrl === 'about:blank') {
+    return null;
+  }
+  return new URL(pageUrl).hostname;
+}
 
 export const getCookies = defineTool({
   name: 'get_cookies_cdp',
@@ -133,36 +143,25 @@ export const setCookie = defineTool({
       request.params;
 
     try {
-      let cookieDomain = domain;
+      const cookieDomain = domain || resolvePageDomain(context);
       if (!cookieDomain) {
-        const pageUrl = context.getSelectedPage().url();
-        if (!pageUrl || pageUrl === 'about:blank') {
-          response.appendResponseLine(
-            'Error: Page URL is about:blank. Provide a domain explicitly.',
-          );
-          return;
-        }
-        cookieDomain = new URL(pageUrl).hostname;
+        response.appendResponseLine(
+          'Error: Page URL is about:blank. Provide a domain explicitly.',
+        );
+        return;
       }
 
-      const cookieParam: Record<string, unknown> = {
+      const cookieParam: Protocol.Network.CookieParam = {
         name,
         value,
         domain: cookieDomain,
         path,
         secure,
         httpOnly,
+        ...(sameSite && {sameSite}),
+        ...(expires && {expires}),
       };
 
-      if (sameSite) {
-        cookieParam.sameSite = sameSite;
-      }
-
-      if (expires) {
-        cookieParam.expires = expires;
-      }
-
-      // @ts-expect-error dynamic cookie params
       const success = await context.setCookie(cookieParam);
 
       if (success) {
@@ -206,16 +205,12 @@ export const deleteCookie = defineTool({
     const {name, domain, path} = request.params;
 
     try {
-      let deleteDomain = domain;
+      const deleteDomain = domain || resolvePageDomain(context);
       if (!deleteDomain) {
-        const pageUrl = context.getSelectedPage().url();
-        if (!pageUrl || pageUrl === 'about:blank') {
-          response.appendResponseLine(
-            'Error: Page URL is about:blank. Provide a domain explicitly.',
-          );
-          return;
-        }
-        deleteDomain = new URL(pageUrl).hostname;
+        response.appendResponseLine(
+          'Error: Page URL is about:blank. Provide a domain explicitly.',
+        );
+        return;
       }
 
       await context.deleteCookies({name, domain: deleteDomain, path});
