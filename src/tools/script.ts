@@ -55,7 +55,7 @@ Example with arguments: \`(el) => {
       fn = await withTimeout(
         frame.evaluateHandle(`(${request.params.function})`),
         DEFAULT_SCRIPT_TIMEOUT,
-        'Script evaluation timed out',
+        `Script compilation timed out after ${DEFAULT_SCRIPT_TIMEOUT / 1000}s. The function may have a syntax error.`,
       );
       await context.waitForEventsAfterAction(async () => {
         const result = await withTimeout(
@@ -64,13 +64,44 @@ Example with arguments: \`(el) => {
             return JSON.stringify(await fn());
           }, fn),
           DEFAULT_SCRIPT_TIMEOUT,
-          'Script execution timed out',
+          `Script execution timed out after ${DEFAULT_SCRIPT_TIMEOUT / 1000}s. The script may be waiting for a network response or user interaction that never completes.`,
         );
-        response.appendResponseLine('Script ran on page and returned:');
-        response.appendResponseLine('```json');
-        response.appendResponseLine(`${result}`);
-        response.appendResponseLine('```');
+        if (result === undefined || result === 'undefined') {
+          response.appendResponseLine(
+            'Script ran on page and returned: undefined',
+          );
+          response.appendResponseLine(
+            '(Tip: Make sure your function returns a value. Use `return` explicitly.)',
+          );
+        } else if (result === null || result === 'null') {
+          response.appendResponseLine('Script ran on page and returned: null');
+        } else {
+          response.appendResponseLine('Script ran on page and returned:');
+          response.appendResponseLine('```json');
+          response.appendResponseLine(`${result}`);
+          response.appendResponseLine('```');
+        }
       });
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      response.appendResponseLine(`Script error: ${errorMessage}`);
+
+      // Add helpful context for common errors
+      if (errorMessage.includes('timed out')) {
+        response.appendResponseLine('');
+        response.appendResponseLine(
+          'Tip: For long-running operations, consider using evaluate_script with a shorter operation, or use the direct API call approach.',
+        );
+      } else if (
+        errorMessage.includes('not a function') ||
+        errorMessage.includes('is not defined')
+      ) {
+        response.appendResponseLine('');
+        response.appendResponseLine(
+          'Tip: Make sure you are passing a function expression, e.g., `() => { ... }` or `async () => { ... }`.',
+        );
+      }
     } finally {
       if (fn) {
         void fn.dispose();
