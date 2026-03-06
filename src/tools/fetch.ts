@@ -49,11 +49,12 @@ export const interceptRequest = defineTool({
   handler: async (request, response, context) => {
     const interceptor = context.fetchInterceptor;
 
+    // Lazy enable: start interception on first rule
     if (!interceptor.isEnabled()) {
-      response.appendResponseLine(
-        'Fetch interceptor not enabled. Select a page first.',
-      );
-      return;
+      const page = context.getSelectedPage();
+      // @ts-expect-error internal API
+      const client = page._client();
+      await interceptor.enable(client);
     }
 
     const {ruleId, urlPattern, resourceType, action, modifyBody, modifyHeaders} =

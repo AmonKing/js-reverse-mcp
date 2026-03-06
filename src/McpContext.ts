@@ -180,7 +180,11 @@ export class McpContext implements Context {
         client = page._client();
       }
       await this.#debuggerContext.enable(client);
-      await this.#fetchInterceptor.enable(client);
+      // FetchInterceptor is lazy-enabled: only re-enable on the new client
+      // if rules already exist (to avoid intercepting all requests when not needed)
+      if (this.#fetchInterceptor.hasRules()) {
+        await this.#fetchInterceptor.enable(client);
+      }
     } catch (error) {
       this.logger('Failed to initialize debugger context', error);
     }
@@ -211,6 +215,7 @@ export class McpContext implements Context {
    */
   async reinitDebugger(): Promise<void> {
     await this.#debuggerContext.disable();
+    await this.#fetchInterceptor.detach();
     await this.#initDebugger();
   }
 
@@ -220,6 +225,7 @@ export class McpContext implements Context {
    */
   async reinitDebuggerForFrame(frame: Frame): Promise<void> {
     await this.#debuggerContext.disable();
+    await this.#fetchInterceptor.detach();
     await this.#initDebugger(frame);
   }
 

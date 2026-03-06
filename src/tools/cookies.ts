@@ -133,22 +133,26 @@ export const setCookie = defineTool({
       request.params;
 
     try {
+      let cookieDomain = domain;
+      if (!cookieDomain) {
+        const pageUrl = context.getSelectedPage().url();
+        if (!pageUrl || pageUrl === 'about:blank') {
+          response.appendResponseLine(
+            'Error: Page URL is about:blank. Provide a domain explicitly.',
+          );
+          return;
+        }
+        cookieDomain = new URL(pageUrl).hostname;
+      }
+
       const cookieParam: Record<string, unknown> = {
         name,
         value,
+        domain: cookieDomain,
         path,
         secure,
         httpOnly,
       };
-
-      if (domain) {
-        cookieParam.domain = domain;
-      } else {
-        // Use current page URL
-        const page = context.getSelectedPage();
-        const url = new URL(page.url());
-        cookieParam.domain = url.hostname;
-      }
 
       if (sameSite) {
         cookieParam.sameSite = sameSite;
@@ -163,7 +167,7 @@ export const setCookie = defineTool({
 
       if (success) {
         response.appendResponseLine(`Cookie "${name}" set successfully.`);
-        response.appendResponseLine(`- Domain: ${cookieParam.domain}`);
+        response.appendResponseLine(`- Domain: ${cookieDomain}`);
         response.appendResponseLine(`- Path: ${path}`);
         response.appendResponseLine(`- HttpOnly: ${httpOnly}`);
         response.appendResponseLine(`- Secure: ${secure}`);
@@ -202,8 +206,17 @@ export const deleteCookie = defineTool({
     const {name, domain, path} = request.params;
 
     try {
-      const deleteDomain =
-        domain || new URL(context.getSelectedPage().url()).hostname;
+      let deleteDomain = domain;
+      if (!deleteDomain) {
+        const pageUrl = context.getSelectedPage().url();
+        if (!pageUrl || pageUrl === 'about:blank') {
+          response.appendResponseLine(
+            'Error: Page URL is about:blank. Provide a domain explicitly.',
+          );
+          return;
+        }
+        deleteDomain = new URL(pageUrl).hostname;
+      }
 
       await context.deleteCookies({name, domain: deleteDomain, path});
       response.appendResponseLine(

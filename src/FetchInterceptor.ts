@@ -10,10 +10,8 @@ export interface InterceptRule {
   id: string;
   urlPattern: string;
   resourceType?: string;
-  modifyBody?: string;        // JSON string to replace request body
-  modifyHeaders?: Record<string, string>; // Headers to add/override
-  modifyResponse?: string;    // Response body override
-  modifyResponseHeaders?: Record<string, string>;
+  modifyBody?: string;
+  modifyHeaders?: Record<string, string>;
   action: 'modify' | 'block' | 'log';
 }
 
@@ -35,7 +33,6 @@ export class FetchInterceptor {
   #client: CDPSession | null = null;
   #enabled = false;
   #rules = new Map<string, InterceptRule>();
-  #pausedRequests = new Map<string, PausedRequest>();
   #logs: Array<{timestamp: number; rule: string; request: PausedRequest; action: string}> = [];
   #maxLogs = 100;
 
@@ -44,10 +41,19 @@ export class FetchInterceptor {
       return;
     }
 
+    // Clean up old client if switching
+    if (this.#enabled && this.#client) {
+      this.#client.off('Fetch.requestPaused', this.#onRequestPaused);
+      try {
+        await this.#client.send('Fetch.disable');
+      } catch {
+        // Old session may be gone
+      }
+    }
+
     this.#client = client;
     client.on('Fetch.requestPaused', this.#onRequestPaused);
 
-    // Enable with all patterns — we filter in the handler
     await client.send('Fetch.enable', {
       patterns: [{urlPattern: '*', requestStage: 'Request'}],
       handleAuthRequests: false,
@@ -56,7 +62,11 @@ export class FetchInterceptor {
     this.#enabled = true;
   }
 
-  async disable(): Promise<void> {
+  /**
+   * Detach from current CDP session without clearing rules/logs.
+   * Used during page/frame switches to preserve configuration.
+   */
+  async detach(): Promise<void> {
     if (!this.#enabled || !this.#client) {
       return;
     }
@@ -69,15 +79,25 @@ export class FetchInterceptor {
       // Ignore
     }
 
-    this.#rules.clear();
-    this.#pausedRequests.clear();
-    this.#logs = [];
     this.#enabled = false;
     this.#client = null;
   }
 
+  /**
+   * Full cleanup: detach and clear all rules/logs.
+   */
+  async disable(): Promise<void> {
+    await this.detach();
+    this.#rules.clear();
+    this.#logs = [];
+  }
+
   isEnabled(): boolean {
     return this.#enabled;
+  }
+
+  hasRules(): boolean {
+    return this.#rules.size > 0;
   }
 
   getClient(): CDPSession | null {
@@ -86,15 +106,10 @@ export class FetchInterceptor {
 
   addRule(rule: InterceptRule): void {
     this.#rules.set(rule.id, rule);
-    this.#updatePatterns();
   }
 
   removeRule(ruleId: string): boolean {
-    const deleted = this.#rules.delete(ruleId);
-    if (deleted) {
-      this.#updatePatterns();
-    }
-    return deleted;
+    return this.#rules.delete(ruleId);
   }
 
   getRules(): InterceptRule[] {
@@ -113,31 +128,10 @@ export class FetchInterceptor {
     this.#logs = [];
   }
 
-  async #updatePatterns(): Promise<void> {
-    if (!this.#client || !this.#enabled) {
-      return;
-    }
-
-    // If no rules, disable interception to avoid overhead
-    if (this.#rules.size === 0) {
-      try {
-        await this.#client.send('Fetch.disable');
-        await this.#client.send('Fetch.enable', {
-          patterns: [{urlPattern: '*', requestStage: 'Request'}],
-          handleAuthRequests: false,
-        });
-      } catch {
-        // Ignore
-      }
-      return;
-    }
-  }
-
   #matchRule(url: string, resourceType: string): InterceptRule | undefined {
     for (const rule of this.#rules.values()) {
-      // Simple glob match: * matches anything
       const pattern = rule.urlPattern
-        .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+        .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
         .replace(/\*/g, '.*');
       const regex = new RegExp(pattern, 'i');
       if (regex.test(url)) {
@@ -172,7 +166,6 @@ export class FetchInterceptor {
     const rule = this.#matchRule(event.request.url, event.resourceType);
 
     if (!rule) {
-      // No matching rule — continue without modification
       try {
         await this.#client.send('Fetch.continueRequest', {
           requestId: event.requestId,
@@ -183,7 +176,6 @@ export class FetchInterceptor {
       return;
     }
 
-    // Log the interception
     this.#logs.push({
       timestamp: Date.now(),
       rule: rule.id,
@@ -209,7 +201,7 @@ export class FetchInterceptor {
           };
 
           if (rule.modifyBody !== undefined) {
-            overrides.postData = btoa(rule.modifyBody);
+            overrides.postData = Buffer.from(rule.modifyBody).toString('base64');
           }
 
           if (rule.modifyHeaders) {
@@ -232,7 +224,6 @@ export class FetchInterceptor {
           break;
       }
     } catch {
-      // Request may have been cancelled
       try {
         await this.#client.send('Fetch.continueRequest', {
           requestId: event.requestId,
