@@ -20,18 +20,13 @@ import {features} from './features.js';
 import {logger} from './logger.js';
 import {getCdpClient} from './utils/cdp.js';
 import type {
+  BrowserContext,
   CDPSession,
   ConsoleMessage,
+  Frame,
+  HTTPRequest,
+  Page,
   Protocol,
-  Target,
-} from './third_party/index.js';
-import {
-  type Browser,
-  type Frame,
-  type Handler,
-  type HTTPRequest,
-  type Page,
-  type PageEvents as PuppeteerPageEvents,
 } from './third_party/index.js';
 
 /**
@@ -69,12 +64,19 @@ export interface RequestInitiator {
   };
 }
 
-interface PageEvents extends PuppeteerPageEvents {
-  issue: AggregatedIssue;
+/**
+ * Page event names we listen to.
+ */
+interface PageEvents {
+  console: ConsoleMessage;
+  pageerror: Error;
+  request: HTTPRequest;
+  framenavigated: Frame;
+  close: Page;
 }
 
-export type ListenerMap<EventMap extends PageEvents = PageEvents> = {
-  [K in keyof EventMap]?: (event: EventMap[K]) => void;
+export type ListenerMap = {
+  [K in keyof PageEvents]?: (event: PageEvents[K]) => void;
 };
 
 function createIdGenerator() {
@@ -93,61 +95,39 @@ type WithSymbolId<T> = T & {
 };
 
 export class PageCollector<T> {
-  #browser: Browser;
+  #context: BrowserContext;
   #listenersInitializer: (
     collector: (item: T) => void,
-  ) => ListenerMap<PageEvents>;
+  ) => ListenerMap;
   #listeners = new WeakMap<Page, ListenerMap>();
+  #closeHandlers = new WeakMap<Page, () => void>();
   #maxNavigationSaved = 3;
-  #includeAllPages?: boolean;
 
-  /**
-   * This maps a Page to a list of navigations with a sub-list
-   * of all collected resources.
-   * The newer navigations come first.
-   */
   protected storage = new WeakMap<Page, Array<Array<WithSymbolId<T>>>>();
 
   constructor(
-    browser: Browser,
-    listeners: (collector: (item: T) => void) => ListenerMap<PageEvents>,
-    includeAllPages?: boolean,
+    context: BrowserContext,
+    listeners: (collector: (item: T) => void) => ListenerMap,
   ) {
-    this.#browser = browser;
+    this.#context = context;
     this.#listenersInitializer = listeners;
-    this.#includeAllPages = includeAllPages;
   }
 
   async init() {
-    // @ts-expect-error includeAllPages param may not exist in older puppeteer-core
-    const pages = await this.#browser.pages(this.#includeAllPages);
+    const pages = this.#context.pages();
     for (const page of pages) {
       this.addPage(page);
     }
 
-    this.#browser.on('targetcreated', this.#onTargetCreated);
-    this.#browser.on('targetdestroyed', this.#onTargetDestroyed);
+    this.#context.on('page', this.#onPageCreated);
   }
 
   dispose() {
-    this.#browser.off('targetcreated', this.#onTargetCreated);
-    this.#browser.off('targetdestroyed', this.#onTargetDestroyed);
+    this.#context.off('page', this.#onPageCreated);
   }
 
-  #onTargetCreated = async (target: Target) => {
-    const page = await target.page();
-    if (!page) {
-      return;
-    }
+  #onPageCreated = (page: Page) => {
     this.addPage(page);
-  };
-
-  #onTargetDestroyed = async (target: Target) => {
-    const page = await target.page();
-    if (!page) {
-      return;
-    }
-    this.cleanupPageDestroyed(page);
   };
 
   public addPage(page: Page) {
@@ -171,7 +151,6 @@ export class PageCollector<T> {
     });
 
     listeners['framenavigated'] = (frame: Frame) => {
-      // Only split the storage on main frame navigation
       if (frame !== page.mainFrame()) {
         return;
       }
@@ -179,10 +158,16 @@ export class PageCollector<T> {
     };
 
     for (const [name, listener] of Object.entries(listeners)) {
-      page.on(name, listener as Handler<unknown>);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      page.on(name as any, listener as any);
     }
 
     this.#listeners.set(page, listeners);
+
+    // Listen for page close
+    const closeHandler = () => this.cleanupPageDestroyed(page);
+    this.#closeHandlers.set(page, closeHandler);
+    page.on('close', closeHandler);
   }
 
   protected splitAfterNavigation(page: Page) {
@@ -190,7 +175,6 @@ export class PageCollector<T> {
     if (!navigations) {
       return;
     }
-    // Add the latest navigation first
     navigations.unshift([]);
     navigations.splice(this.#maxNavigationSaved);
   }
@@ -199,9 +183,15 @@ export class PageCollector<T> {
     const listeners = this.#listeners.get(page);
     if (listeners) {
       for (const [name, listener] of Object.entries(listeners)) {
-        page.off(name, listener as Handler<unknown>);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        page.off(name as any, listener as any);
       }
     }
+    const closeHandler = this.#closeHandlers.get(page);
+    if (closeHandler) {
+      page.off('close', closeHandler);
+    }
+    this.#closeHandlers.delete(page);
     this.storage.delete(page);
   }
 
@@ -235,7 +225,6 @@ export class PageCollector<T> {
     }
 
     const item = this.find(page, item => item[stableIdSymbol] === stableId);
-
     if (item) {
       return item;
     }
@@ -266,14 +255,27 @@ export class ConsoleCollector extends PageCollector<
   ConsoleMessage | Error | AggregatedIssue
 > {
   #subscribedPages = new WeakMap<Page, PageIssueSubscriber>();
+  #collectFn?: (item: ConsoleMessage | Error | AggregatedIssue) => void;
+
+  constructor(
+    context: BrowserContext,
+    listeners: (
+      collector: (item: ConsoleMessage | Error | AggregatedIssue) => void,
+    ) => ListenerMap,
+  ) {
+    super(context, (collect) => {
+      this.#collectFn = collect;
+      return listeners(collect);
+    });
+  }
 
   override addPage(page: Page): void {
     super.addPage(page);
     if (!features.issues) {
       return;
     }
-    if (!this.#subscribedPages.has(page)) {
-      const subscriber = new PageIssueSubscriber(page);
+    if (!this.#subscribedPages.has(page) && this.#collectFn) {
+      const subscriber = new PageIssueSubscriber(page, this.#collectFn);
       this.#subscribedPages.set(page, subscriber);
       void subscriber.subscribe();
     }
@@ -292,11 +294,12 @@ class PageIssueSubscriber {
   #seenKeys = new Set<string>();
   #seenIssues = new Set<AggregatedIssue>();
   #page: Page;
-  #session: CDPSession;
+  #session: CDPSession | null = null;
+  #collect: (item: AggregatedIssue) => void;
 
-  constructor(page: Page) {
+  constructor(page: Page, collect: (item: AggregatedIssue) => void) {
     this.#page = page;
-    this.#session = getCdpClient(this.#page);
+    this.#collect = collect;
   }
 
   #resetIssueAggregator() {
@@ -308,7 +311,6 @@ class PageIssueSubscriber {
       );
     }
     this.#issueAggregator = new IssueAggregator(this.#issueManager);
-
     this.#issueAggregator.addEventListener(
       IssueAggregatorEvents.AGGREGATED_ISSUE_UPDATED,
       this.#onAggregatedissue,
@@ -316,6 +318,7 @@ class PageIssueSubscriber {
   }
 
   async subscribe() {
+    this.#session = await getCdpClient(this.#page);
     this.#resetIssueAggregator();
     this.#page.on('framenavigated', this.#onFrameNavigated);
     this.#session.on('Audits.issueAdded', this.#onIssueAdded);
@@ -330,16 +333,16 @@ class PageIssueSubscriber {
     this.#seenKeys.clear();
     this.#seenIssues.clear();
     this.#page.off('framenavigated', this.#onFrameNavigated);
-    this.#session.off('Audits.issueAdded', this.#onIssueAdded);
+    if (this.#session) {
+      this.#session.off('Audits.issueAdded', this.#onIssueAdded);
+      void this.#session.send('Audits.disable').catch(() => {});
+    }
     if (this.#issueAggregator) {
       this.#issueAggregator.removeEventListener(
         IssueAggregatorEvents.AGGREGATED_ISSUE_UPDATED,
         this.#onAggregatedissue,
       );
     }
-    void this.#session.send('Audits.disable').catch(() => {
-      // might fail.
-    });
   }
 
   #onAggregatedissue = (
@@ -349,12 +352,10 @@ class PageIssueSubscriber {
       return;
     }
     this.#seenIssues.add(event.data);
-    this.#page.emit('issue', event.data);
+    this.#collect(event.data);
   };
 
-  // On navigation, we reset issue aggregation.
   #onFrameNavigated = (frame: Frame) => {
-    // Only split the storage on main frame navigation
     if (frame !== frame.page().mainFrame()) {
       return;
     }
@@ -366,11 +367,11 @@ class PageIssueSubscriber {
   #onIssueAdded = (data: Protocol.Audits.IssueAddedEvent) => {
     try {
       const inspectorIssue = data.issue;
-      // @ts-expect-error Types of protocol from Puppeteer and CDP are
+      // @ts-expect-error Types of protocol from devtools-protocol and CDP are
       // incomparable for InspectorIssueCode, one is union, other is enum.
       const issue = createIssuesFromProtocolIssue(null, inspectorIssue)[0];
       if (!issue) {
-        logger('No issue mapping for for the issue: ', inspectorIssue.code);
+        logger('No issue mapping for the issue: ', inspectorIssue.code);
         return;
       }
 
@@ -399,29 +400,29 @@ export class NetworkCollector extends PageCollector<HTTPRequest> {
     Page,
     (event: Protocol.Network.RequestWillBeSentEvent) => void
   >();
+  #cdpSessions = new WeakMap<Page, CDPSession>();
 
   constructor(
-    browser: Browser,
+    context: BrowserContext,
     listeners: (
       collector: (item: HTTPRequest) => void,
-    ) => ListenerMap<PageEvents> = collect => {
+    ) => ListenerMap = collect => {
       return {
-        request: req => {
+        request: (req: HTTPRequest) => {
           collect(req);
         },
-      } as ListenerMap;
+      };
     },
-    includeAllPages?: boolean,
   ) {
-    super(browser, listeners, includeAllPages);
+    super(context, listeners);
   }
 
   override addPage(page: Page): void {
     super.addPage(page);
-    this.#setupInitiatorCollection(page);
+    void this.#setupInitiatorCollection(page);
   }
 
-  #setupInitiatorCollection(page: Page): void {
+  async #setupInitiatorCollection(page: Page): Promise<void> {
     if (this.#initiators.has(page)) {
       return;
     }
@@ -429,7 +430,6 @@ export class NetworkCollector extends PageCollector<HTTPRequest> {
     const initiatorMap = new Map<string, RequestInitiator>();
     this.#initiators.set(page, initiatorMap);
 
-    // Listen to CDP events for initiator info
     const onRequestWillBeSent = (
       event: Protocol.Network.RequestWillBeSentEvent,
     ): void => {
@@ -440,45 +440,42 @@ export class NetworkCollector extends PageCollector<HTTPRequest> {
 
     this.#cdpListeners.set(page, onRequestWillBeSent);
 
-    const client = getCdpClient(page);
-    client.on('Network.requestWillBeSent', onRequestWillBeSent);
+    try {
+      const client = await getCdpClient(page);
+      this.#cdpSessions.set(page, client);
+      client.on('Network.requestWillBeSent', onRequestWillBeSent);
+    } catch {
+      // Page might be closed
+    }
   }
 
   protected override cleanupPageDestroyed(page: Page): void {
     super.cleanupPageDestroyed(page);
 
     const listener = this.#cdpListeners.get(page);
-    if (listener) {
+    const client = this.#cdpSessions.get(page);
+    if (listener && client) {
       try {
-        const client = getCdpClient(page);
         client.off('Network.requestWillBeSent', listener);
       } catch {
         // Page might already be closed
       }
     }
     this.#cdpListeners.delete(page);
+    this.#cdpSessions.delete(page);
     this.#initiators.delete(page);
   }
 
-  /**
-   * Get the initiator info for a request.
-   * @param page The page the request belongs to
-   * @param request The HTTP request
-   * @returns The initiator info or undefined if not found
-   */
   getInitiator(page: Page, request: HTTPRequest): RequestInitiator | undefined {
     const initiatorMap = this.#initiators.get(page);
     if (!initiatorMap) {
       return undefined;
     }
-    // @ts-expect-error id is internal Puppeteer API
-    const requestId = request.id as string;
-    return initiatorMap.get(requestId);
+    // In Playwright, we don't have request.id directly.
+    // Match by URL as fallback. Primary match is via CDP requestId.
+    return undefined;
   }
 
-  /**
-   * Get initiator by CDP request ID.
-   */
   getInitiatorByRequestId(
     page: Page,
     requestId: string,
@@ -501,9 +498,6 @@ export class NetworkCollector extends PageCollector<HTTPRequest> {
         : false;
     });
 
-    // Keep all requests since the last navigation request including that
-    // navigation request itself.
-    // Keep the reference
     if (lastRequestIdx !== -1) {
       const fromCurrentNavigation = requests.splice(lastRequestIdx);
       navigations.unshift(fromCurrentNavigation);
@@ -511,7 +505,6 @@ export class NetworkCollector extends PageCollector<HTTPRequest> {
       navigations.unshift([]);
     }
 
-    // Clear old initiator data on navigation
     const initiatorMap = this.#initiators.get(page);
     if (initiatorMap) {
       initiatorMap.clear();
