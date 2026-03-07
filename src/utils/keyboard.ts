@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type {KeyInput} from '../third_party/index.js';
+// Playwright uses plain strings for key names
 
-// See the KeyInput type for the list of supported keys.
+// See the string type for the list of supported keys.
 const validKeys = new Set([
   '0',
   '1',
@@ -265,9 +265,9 @@ const validKeys = new Set([
   'VolumeUp',
 ]);
 
-function throwIfInvalidKey(key: string): KeyInput {
+function throwIfInvalidKey(key: string): string {
   if (validKeys.has(key)) {
-    return key as KeyInput;
+    return key as string;
   }
   throw new Error(
     `${key} is invalid. Valid keys are: ${Array.from(validKeys.values()).join(',')}.`,
@@ -277,9 +277,9 @@ function throwIfInvalidKey(key: string): KeyInput {
 /**
  * Returns the primary key, followed by modifiers in original order.
  */
-export function parseKey(keyInput: string): [KeyInput, ...KeyInput[]] {
+export function parseKey(keyInput: string): [string, ...string[]] {
   let key = '';
-  const result: KeyInput[] = [];
+  const result: string[] = [];
   for (const ch of keyInput) {
     // Handle cases like Shift++.
     if (ch === '+' && key) {
@@ -301,5 +301,5 @@ export function parseKey(keyInput: string): [KeyInput, ...KeyInput[]] {
     throw new Error(`Key ${keyInput} contains duplicate keys.`);
   }
 
-  return [result.at(-1), ...result.slice(0, -1)] as [KeyInput, ...KeyInput[]];
+  return [result.at(-1), ...result.slice(0, -1)] as [string, ...string[]];
 }

@@ -5,12 +5,10 @@
  */
 
 import {zod} from '../third_party/index.js';
-import type {ResourceType} from '../third_party/index.js';
-
 import {ToolCategory} from './categories.js';
 import {defineTool} from './ToolDefinition.js';
 
-const FILTERABLE_RESOURCE_TYPES: readonly [ResourceType, ...ResourceType[]] = [
+const FILTERABLE_RESOURCE_TYPES: readonly [string, ...string[]] = [
   'document',
   'stylesheet',
   'image',
