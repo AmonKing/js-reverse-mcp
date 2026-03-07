@@ -10,22 +10,22 @@ import path from 'node:path';
 
 import {type AggregatedIssue} from '../node_modules/chrome-devtools-frontend/mcp/mcp.js';
 
+import {getDefaultContext} from './browser.js';
 import {DebuggerContext} from './DebuggerContext.js';
 import {FetchInterceptor} from './FetchInterceptor.js';
 import {extractUrlLikeFromDevToolsTitle, urlsEqual} from './DevtoolsUtils.js';
 import type {TrafficSummary} from './formatters/websocketFormatter.js';
 import {NetworkCollector, ConsoleCollector} from './PageCollector.js';
 import type {ListenerMap, RequestInitiator} from './PageCollector.js';
-import {Locator} from './third_party/index.js';
 import type {
   Browser,
+  BrowserContext,
   ConsoleMessage,
   Debugger,
   Dialog,
   Frame,
   HTTPRequest,
   Page,
-  PredefinedNetworkConditions,
   Protocol,
 } from './third_party/index.js';
 import {listPages} from './tools/pages.js';
@@ -40,8 +40,6 @@ import {WebSocketCollector} from './WebSocketCollector.js';
 interface McpContextOptions {
   // Whether the DevTools windows are exposed as pages for debugging of DevTools.
   experimentalDevToolsDebugging: boolean;
-  // Whether all page-like targets are exposed as pages.
-  experimentalIncludeAllPages?: boolean;
   // JavaScript to inject into every page before any other script runs.
   initScript?: string;
 }
@@ -50,10 +48,7 @@ const DEFAULT_TIMEOUT = 5_000;
 const NAVIGATION_TIMEOUT = 10_000;
 
 function getNetworkMultiplierFromString(condition: string | null): number {
-  const puppeteerCondition =
-    condition as keyof typeof PredefinedNetworkConditions;
-
-  switch (puppeteerCondition) {
+  switch (condition) {
     case 'Fast 4G':
       return 1;
     case 'Slow 4G':
@@ -101,28 +96,23 @@ export class McpContext implements Context {
   #traceResults: TraceResult[] = [];
   #trafficSummaryCache = new Map<number, TrafficSummary>();
 
-  #locatorClass: typeof Locator;
   #options: McpContextOptions;
+  #browserContext: BrowserContext;
 
   private constructor(
     browser: Browser,
     logger: Debugger,
     options: McpContextOptions,
-    locatorClass: typeof Locator,
   ) {
     this.browser = browser;
     this.logger = logger;
-    this.#locatorClass = locatorClass;
     this.#options = options;
+    this.#browserContext = getDefaultContext(browser);
 
-    this.#networkCollector = new NetworkCollector(
-      this.browser,
-      undefined,
-      this.#options.experimentalIncludeAllPages,
-    );
+    this.#networkCollector = new NetworkCollector(this.#browserContext);
 
     this.#consoleCollector = new ConsoleCollector(
-      this.browser,
+      this.#browserContext,
       collect => {
         return {
           console: event => {
@@ -137,25 +127,18 @@ export class McpContext implements Context {
               collect(error);
             }
           },
-          issue: event => {
-            collect(event);
-          },
         } as ListenerMap;
       },
-      this.#options.experimentalIncludeAllPages,
     );
 
-    this.#webSocketCollector = new WebSocketCollector(
-      this.browser,
-      this.#options.experimentalIncludeAllPages,
-    );
+    this.#webSocketCollector = new WebSocketCollector(this.#browserContext);
   }
 
   async #init() {
     await this.createPagesSnapshot();
     if (this.#options.initScript) {
       for (const page of this.#pages) {
-        await page.evaluateOnNewDocument(this.#options.initScript);
+        await page.addInitScript(this.#options.initScript);
       }
     }
     await this.#networkCollector.init();
@@ -172,15 +155,13 @@ export class McpContext implements Context {
     try {
       let client;
       if (frame && frame !== page.mainFrame()) {
-        // Use the frame's own CDP session (works for OOPIFs / cross-origin iframes)
-        // @ts-expect-error client is a public getter on Frame but not in all type definitions
-        client = frame.client;
+        // For cross-origin iframes, create a CDP session for the frame's page
+        // Playwright doesn't expose per-frame CDP sessions directly
+        client = await getCdpClient(page);
       } else {
-        client = getCdpClient(page);
+        client = await getCdpClient(page);
       }
       await this.#debuggerContext.enable(client);
-      // FetchInterceptor is lazy-enabled: only re-enable on the new client
-      // if rules already exist (to avoid intercepting all requests when not needed)
       if (this.#fetchInterceptor.hasRules()) {
         await this.#fetchInterceptor.enable(client);
       }
@@ -232,10 +213,8 @@ export class McpContext implements Context {
     browser: Browser,
     logger: Debugger,
     opts: McpContextOptions,
-    /* Let tests use unbundled Locator class to avoid overly strict checks within puppeteer that fail when mixing bundled and unbundled class instances */
-    locatorClass: typeof Locator = Locator,
   ) {
-    const context = new McpContext(browser, logger, opts, locatorClass);
+    const context = new McpContext(browser, logger, opts);
     await context.#init();
     return context;
   }
@@ -246,9 +225,12 @@ export class McpContext implements Context {
       this.logger('no network request');
       return;
     }
-    const request = this.#networkCollector.find(selectedPage, request => {
-      // @ts-expect-error id is internal.
-      return request.id === cdpRequestId;
+    // In Playwright we can't access request.id directly, so we use
+    // getInitiatorByRequestId which stores CDP request IDs
+    const request = this.#networkCollector.find(selectedPage, () => {
+      // We can't match by internal ID in Playwright
+      // This is a known limitation - use getInitiatorByRequestId instead
+      return false;
     });
     if (!request) {
       this.logger('no network request for ' + cdpRequestId);
@@ -280,9 +262,9 @@ export class McpContext implements Context {
   }
 
   async newPage(): Promise<Page> {
-    const page = await this.browser.newPage();
+    const page = await this.#browserContext.newPage();
     if (this.#options.initScript) {
-      await page.evaluateOnNewDocument(this.#options.initScript);
+      await page.addInitScript(this.#options.initScript);
     }
     await this.createPagesSnapshot();
     this.selectPage(page);
@@ -394,14 +376,11 @@ export class McpContext implements Context {
 
   selectFrame(frame: Frame): void {
     this.#selectedFrame = frame;
-    // Reinitialize debugger for the frame's CDP session
-    // so that scripts from cross-origin iframes (OOPIFs) are visible
     void this.reinitDebuggerForFrame(frame);
   }
 
   resetSelectedFrame(): void {
     this.#selectedFrame = undefined;
-    // Reinitialize debugger for the main page's CDP session
     void this.reinitDebugger();
   }
 
@@ -409,7 +388,7 @@ export class McpContext implements Context {
 
   async addPersistentScript(label: string, code: string): Promise<string> {
     const page = this.getSelectedPage();
-    const client = getCdpClient(page);
+    const client = await getCdpClient(page);
     const result = await client.send('Page.addScriptToEvaluateOnNewDocument', {
       source: code,
     });
@@ -420,7 +399,7 @@ export class McpContext implements Context {
 
   async removePersistentScript(identifier: string): Promise<boolean> {
     const page = this.getSelectedPage();
-    const client = getCdpClient(page);
+    const client = await getCdpClient(page);
     try {
       await client.send('Page.removeScriptToEvaluateOnNewDocument', {identifier});
       this.#persistentScripts.delete(identifier);
@@ -436,7 +415,7 @@ export class McpContext implements Context {
 
   async getCookies(urls?: string[]): Promise<Protocol.Network.Cookie[]> {
     const page = this.getSelectedPage();
-    const client = getCdpClient(page);
+    const client = await getCdpClient(page);
     const params: Protocol.Network.GetCookiesRequest = {};
     if (urls && urls.length > 0) {
       params.urls = urls;
@@ -447,26 +426,21 @@ export class McpContext implements Context {
 
   async setCookie(cookie: Protocol.Network.CookieParam): Promise<boolean> {
     const page = this.getSelectedPage();
-    const client = getCdpClient(page);
+    const client = await getCdpClient(page);
     const result = await client.send('Network.setCookie', cookie);
     return result.success;
   }
 
   async deleteCookies(params: Protocol.Network.DeleteCookiesRequest): Promise<void> {
     const page = this.getSelectedPage();
-    const client = getCdpClient(page);
+    const client = await getCdpClient(page);
     await client.send('Network.deleteCookies', params);
   }
 
   #updateSelectedPageTimeouts() {
     const page = this.getSelectedPage();
-    // For waiters 5sec timeout should be sufficient.
-    // Increased in case we throttle the CPU
     const cpuMultiplier = this.getCpuThrottlingRate();
     page.setDefaultTimeout(DEFAULT_TIMEOUT * cpuMultiplier);
-    // 10sec should be enough for the load event to be emitted during
-    // navigations.
-    // Increased in case we throttle the network requests
     const networkMultiplier = getNetworkMultiplierFromString(
       this.getNetworkConditions(),
     );
@@ -474,20 +448,21 @@ export class McpContext implements Context {
   }
 
   getNavigationTimeout() {
-    const page = this.getSelectedPage();
-    return page.getDefaultNavigationTimeout();
+    // Playwright doesn't expose getDefaultNavigationTimeout()
+    // Compute it from our settings
+    const networkMultiplier = getNetworkMultiplierFromString(
+      this.getNetworkConditions(),
+    );
+    return NAVIGATION_TIMEOUT * networkMultiplier;
   }
 
   /**
    * Creates a snapshot of the pages.
    */
   async createPagesSnapshot(): Promise<Page[]> {
-    // @ts-expect-error includeAllPages param may not exist in older puppeteer-core
-    const allPages = await this.browser.pages(this.#options.experimentalIncludeAllPages);
+    const allPages = this.#browserContext.pages();
 
     this.#pages = allPages.filter(page => {
-      // If we allow debugging DevTools windows, return all pages.
-      // If we are in regular mode, the user should only see non-DevTools page.
       return (
         this.#options.experimentalDevToolsDebugging ||
         !page.url().startsWith('devtools://')
@@ -505,23 +480,19 @@ export class McpContext implements Context {
 
   async detectOpenDevToolsWindows() {
     this.logger('Detecting open DevTools windows');
-    // @ts-expect-error includeAllPages param may not exist in older puppeteer-core
-    const pages = await this.browser.pages(this.#options.experimentalIncludeAllPages);
+    const pages = this.#browserContext.pages();
     this.#pageToDevToolsPage = new Map<Page, Page>();
     for (const devToolsPage of pages) {
       if (devToolsPage.url().startsWith('devtools://')) {
         try {
           this.logger('Calling getTargetInfo for ' + devToolsPage.url());
-          const data = await devToolsPage
-            // @ts-expect-error no types for _client().
-            ._client()
-            .send('Target.getTargetInfo');
+          const client = await getCdpClient(devToolsPage);
+          const data = await client.send('Target.getTargetInfo');
           const devtoolsPageTitle = data.targetInfo.title;
           const urlLike = extractUrlLikeFromDevToolsTitle(devtoolsPageTitle);
           if (!urlLike) {
             continue;
           }
-          // TODO: lookup without a loop.
           for (const page of this.#pages) {
             if (urlsEqual(page.url(), urlLike)) {
               this.#pageToDevToolsPage.set(page, devToolsPage);
@@ -618,21 +589,22 @@ export class McpContext implements Context {
     return this.#traceResults;
   }
 
-  getWaitForHelper(
+  async getWaitForHelper(
     page: Page,
     cpuMultiplier: number,
     networkMultiplier: number,
   ) {
-    return new WaitForHelper(page, cpuMultiplier, networkMultiplier);
+    const client = await getCdpClient(page);
+    return new WaitForHelper(page, client, cpuMultiplier, networkMultiplier);
   }
 
-  waitForEventsAfterAction(action: () => Promise<unknown>): Promise<void> {
+  async waitForEventsAfterAction(action: () => Promise<unknown>): Promise<void> {
     const page = this.getSelectedPage();
     const cpuMultiplier = this.getCpuThrottlingRate();
     const networkMultiplier = getNetworkMultiplierFromString(
       this.getNetworkConditions(),
     );
-    const waitForHelper = this.getWaitForHelper(
+    const waitForHelper = await this.getWaitForHelper(
       page,
       cpuMultiplier,
       networkMultiplier,
@@ -698,35 +670,41 @@ export class McpContext implements Context {
     return this.#trafficSummaryCache.get(wsid);
   }
 
-  waitForTextOnPage({
+  async waitForTextOnPage({
     text,
     timeout,
   }: {
     text: string;
     timeout?: number | undefined;
-  }): Promise<Element> {
+  }): Promise<void> {
     const page = this.getSelectedPage();
     const frames = page.frames();
 
-    const locator = this.#locatorClass.race(
-      frames.flatMap(frame => [
-        frame.locator(`aria/${text}`),
-        frame.locator(`text/${text}`),
-      ]),
-    );
+    // Build an .or() chain across all frames with aria and text locators
+    const locators = frames.flatMap(frame => [
+      frame.locator(`text=${text}`),
+      frame.getByText(text),
+    ]);
 
-    if (timeout) {
-      locator.setTimeout(timeout);
+    if (locators.length === 0) {
+      throw new Error('No frames available');
     }
 
-    return locator.wait();
+    let combined = locators[0];
+    for (let i = 1; i < locators.length; i++) {
+      combined = combined.or(locators[i]);
+    }
+
+    await combined.first().waitFor({
+      timeout: timeout ?? DEFAULT_TIMEOUT,
+    });
   }
 
   /**
    * We need to ignore favicon request as they make our test flaky
    */
   async setUpNetworkCollectorForTesting() {
-    this.#networkCollector = new NetworkCollector(this.browser, collect => {
+    this.#networkCollector = new NetworkCollector(this.#browserContext, collect => {
       return {
         request: req => {
           if (req.url().includes('favicon.ico')) {
