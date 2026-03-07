@@ -5,6 +5,12 @@
  */
 
 import {zod} from '../third_party/index.js';
+import {
+  humanClick,
+  humanClickSelector,
+  humanType,
+  humanScroll,
+} from '../utils/humanize.js';
 
 import {ToolCategory} from './categories.js';
 import {defineTool} from './ToolDefinition.js';
@@ -33,19 +39,35 @@ export const clickElement = defineTool({
       .int()
       .default(1)
       .describe('Number of clicks (e.g. 2 for double-click).'),
+    humanize: zod
+      .boolean()
+      .default(false)
+      .describe(
+        'If true, simulate human-like mouse movement with bezier curve trajectory and random offset before clicking.',
+      ),
   },
   handler: async (request, response, context) => {
     const page = context.getSelectedPage();
-    const {selector, x, y, button, clickCount} = request.params;
+    const {selector, x, y, button, clickCount, humanize} = request.params;
 
     if (selector) {
-      await page.click(selector, {button, clickCount});
+      if (humanize) {
+        await humanClickSelector(page, selector, {button, clickCount});
+      } else {
+        await page.click(selector, {button, clickCount});
+      }
       response.appendResponseLine(
-        `Clicked element matching "${selector}".`,
+        `Clicked element matching "${selector}"${humanize ? ' (humanized)' : ''}.`,
       );
     } else if (x !== undefined && y !== undefined) {
-      await page.mouse.click(x, y, {button, clickCount});
-      response.appendResponseLine(`Clicked at coordinates (${x}, ${y}).`);
+      if (humanize) {
+        await humanClick(page, x, y, {button, clickCount});
+      } else {
+        await page.mouse.click(x, y, {button, clickCount});
+      }
+      response.appendResponseLine(
+        `Clicked at coordinates (${x}, ${y})${humanize ? ' (humanized)' : ''}.`,
+      );
     } else {
       throw new Error('Either selector or x/y coordinates must be provided.');
     }
@@ -78,7 +100,7 @@ export const fillText = defineTool({
 export const typeText = defineTool({
   name: 'type_text',
   description:
-    'Type text character by character with key events. Use this when you need realistic keystroke simulation (e.g. for autocomplete).',
+    'Type text character by character with key events. Use this when you need realistic keystroke simulation (e.g. for autocomplete). Set humanize=true for random delays that mimic real human typing.',
   annotations: {
     category: ToolCategory.INPUT,
     readOnlyHint: false,
@@ -91,15 +113,25 @@ export const typeText = defineTool({
     delay: zod
       .number()
       .optional()
-      .describe('Delay between keystrokes in milliseconds.'),
+      .describe('Delay between keystrokes in milliseconds (fixed). Ignored when humanize=true.'),
+    humanize: zod
+      .boolean()
+      .default(false)
+      .describe(
+        'If true, type with random delays (50-150ms avg), occasional pauses, and click into the field with human-like mouse movement first.',
+      ),
   },
   handler: async (request, response, context) => {
     const page = context.getSelectedPage();
-    const {selector, text, delay} = request.params;
+    const {selector, text, delay, humanize} = request.params;
 
-    await page.locator(selector).pressSequentially(text, {delay});
+    if (humanize) {
+      await humanType(page, selector, text);
+    } else {
+      await page.locator(selector).pressSequentially(text, {delay});
+    }
     response.appendResponseLine(
-      `Typed "${text}" into "${selector}".`,
+      `Typed "${text}" into "${selector}"${humanize ? ' (humanized)' : ''}.`,
     );
   },
 });
@@ -201,12 +233,31 @@ export const hoverElement = defineTool({
     selector: zod
       .string()
       .describe('CSS selector of the element to hover over.'),
+    humanize: zod
+      .boolean()
+      .default(false)
+      .describe(
+        'If true, move mouse along a human-like bezier curve path to the element.',
+      ),
   },
   handler: async (request, response, context) => {
     const page = context.getSelectedPage();
-    await page.hover(request.params.selector);
+    const {selector, humanize} = request.params;
+
+    if (humanize) {
+      const box = await page.locator(selector).boundingBox();
+      if (!box) {
+        throw new Error(`Element "${selector}" not found or not visible.`);
+      }
+      const {humanMouseMove} = await import('../utils/humanize.js');
+      const x = box.x + box.width * (0.3 + Math.random() * 0.4);
+      const y = box.y + box.height * (0.3 + Math.random() * 0.4);
+      await humanMouseMove(page, x, y);
+    } else {
+      await page.hover(selector);
+    }
     response.appendResponseLine(
-      `Hovered over "${request.params.selector}".`,
+      `Hovered over "${selector}"${humanize ? ' (humanized)' : ''}.`,
     );
   },
 });
@@ -230,12 +281,24 @@ export const scrollPage = defineTool({
       .describe(
         'Vertical scroll amount in pixels. Positive values scroll down.',
       ),
+    humanize: zod
+      .boolean()
+      .default(false)
+      .describe(
+        'If true, scroll gradually in multiple steps with deceleration.',
+      ),
   },
   handler: async (request, response, context) => {
     const page = context.getSelectedPage();
-    await page.mouse.wheel(request.params.x, request.params.y);
+    const {x, y, humanize} = request.params;
+
+    if (humanize) {
+      await humanScroll(page, x, y);
+    } else {
+      await page.mouse.wheel(x, y);
+    }
     response.appendResponseLine(
-      `Scrolled by (${request.params.x}, ${request.params.y}).`,
+      `Scrolled by (${x}, ${y})${humanize ? ' (humanized)' : ''}.`,
     );
   },
 });
