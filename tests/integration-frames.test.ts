@@ -6,26 +6,16 @@
 import {describe, it, after, before} from 'node:test';
 import assert from 'node:assert';
 
-import type {Browser, BrowserContext, Page} from '../src/third_party/index.js';
-import {chromium} from '../src/third_party/index.js';
+import type {Page} from '../src/third_party/index.js';
+import {useBrowser} from './helpers.js';
 
-let browser: Browser;
-let context: BrowserContext;
-
-before(async () => {
-  browser = await chromium.launch({channel: 'chrome', headless: true});
-  context = await browser.newContext();
-});
-
-after(async () => {
-  await browser?.close();
-});
+const env = useBrowser();
 
 describe('Frames', () => {
   let page: Page;
 
   before(async () => {
-    page = await context.newPage();
+    page = await env.context.newPage();
     await page.goto(`data:text/html,
       <h1>Main Frame</h1>
       <iframe srcdoc="<h2>Child Frame</h2>" name="child"></iframe>
@@ -37,7 +27,7 @@ describe('Frames', () => {
   });
 
   it('page.frames() returns frames including iframes', async () => {
-    await page.waitForTimeout(500);
+    await page.locator('iframe[name="child"]').waitFor();
     const frames = page.frames();
     assert.ok(frames.length >= 2, `Expected at least 2 frames, got ${frames.length}`);
   });
@@ -49,7 +39,7 @@ describe('Frames', () => {
   });
 
   it('frame.name() returns name', async () => {
-    await page.waitForTimeout(500);
+    await page.locator('iframe[name="child"]').waitFor();
     const frames = page.frames();
     const childFrame = frames.find(f => f.name() === 'child');
     assert.ok(childFrame, 'Should find frame with name "child"');
@@ -66,7 +56,7 @@ describe('Locator .or() chain pattern', () => {
   let page: Page;
 
   before(async () => {
-    page = await context.newPage();
+    page = await env.context.newPage();
     await page.goto('data:text/html,<div id="a">Alpha</div><div id="b">Beta</div>');
   });
 
@@ -106,7 +96,7 @@ describe('Page timeouts', () => {
   let page: Page;
 
   before(async () => {
-    page = await context.newPage();
+    page = await env.context.newPage();
   });
 
   after(async () => {

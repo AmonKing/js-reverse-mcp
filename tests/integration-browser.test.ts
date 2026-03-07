@@ -6,42 +6,32 @@
 import {describe, it, after, before} from 'node:test';
 import assert from 'node:assert';
 
-import type {Browser, BrowserContext, Page} from '../src/third_party/index.js';
-import {chromium} from '../src/third_party/index.js';
+import type {Page} from '../src/third_party/index.js';
 import {getDefaultContext} from '../src/browser.js';
 import {getCdpClient, invalidateCdpClient} from '../src/utils/cdp.js';
+import {useBrowser} from './helpers.js';
 
-let browser: Browser;
-let context: BrowserContext;
-
-before(async () => {
-  browser = await chromium.launch({channel: 'chrome', headless: true});
-  context = await browser.newContext();
-});
-
-after(async () => {
-  await browser?.close();
-});
+const env = useBrowser();
 
 describe('Browser lifecycle (Patchright)', () => {
   it('browser is connected', () => {
-    assert.ok(browser.isConnected());
+    assert.ok(env.browser.isConnected());
   });
 
   it('getDefaultContext returns first context', () => {
-    const ctx = getDefaultContext(browser);
+    const ctx = getDefaultContext(env.browser);
     assert.ok(ctx);
   });
 
   it('can create a new page', async () => {
-    const page = await context.newPage();
+    const page = await env.context.newPage();
     assert.ok(page);
     assert.strictEqual(page.isClosed(), false);
     await page.close();
   });
 
   it('can navigate to about:blank', async () => {
-    const page = await context.newPage();
+    const page = await env.context.newPage();
     await page.goto('about:blank');
     assert.strictEqual(page.url(), 'about:blank');
     await page.close();
@@ -52,7 +42,7 @@ describe('CDP Session (Patchright)', () => {
   let page: Page;
 
   before(async () => {
-    page = await context.newPage();
+    page = await env.context.newPage();
   });
 
   after(async () => {

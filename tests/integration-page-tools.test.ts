@@ -6,31 +6,21 @@
 import {describe, it, after, before} from 'node:test';
 import assert from 'node:assert';
 
-import type {Browser, BrowserContext, Page} from '../src/third_party/index.js';
-import {chromium} from '../src/third_party/index.js';
+import type {Page} from '../src/third_party/index.js';
+import {useBrowser} from './helpers.js';
 
-let browser: Browser;
-let context: BrowserContext;
-
-before(async () => {
-  browser = await chromium.launch({channel: 'chrome', headless: true});
-  context = await browser.newContext();
-});
-
-after(async () => {
-  await browser?.close();
-});
+const env = useBrowser();
 
 describe('Page navigation', () => {
   it('goto and url()', async () => {
-    const page = await context.newPage();
+    const page = await env.context.newPage();
     await page.goto('data:text/html,<h1>Hello</h1>');
     assert.ok(page.url().startsWith('data:'));
     await page.close();
   });
 
   it('goBack and goForward', async () => {
-    const page = await context.newPage();
+    const page = await env.context.newPage();
     await page.goto('data:text/html,<h1>Page1</h1>');
     const url1 = page.url();
     await page.goto('data:text/html,<h1>Page2</h1>');
@@ -42,7 +32,7 @@ describe('Page navigation', () => {
   });
 
   it('reload', async () => {
-    const page = await context.newPage();
+    const page = await env.context.newPage();
     await page.goto('data:text/html,<h1>Reload</h1>');
     await page.reload({waitUntil: 'domcontentloaded'});
     assert.ok(page.url().startsWith('data:'));
@@ -50,16 +40,16 @@ describe('Page navigation', () => {
   });
 
   it('pages() returns open pages', async () => {
-    const page1 = await context.newPage();
-    const page2 = await context.newPage();
-    const pages = context.pages();
+    const page1 = await env.context.newPage();
+    const page2 = await env.context.newPage();
+    const pages = env.context.pages();
     assert.ok(pages.length >= 2);
     await page1.close();
     await page2.close();
   });
 
   it('bringToFront', async () => {
-    const page = await context.newPage();
+    const page = await env.context.newPage();
     await page.bringToFront();
     await page.close();
   });
@@ -69,7 +59,7 @@ describe('Script evaluation (Playwright API)', () => {
   let page: Page;
 
   before(async () => {
-    page = await context.newPage();
+    page = await env.context.newPage();
     await page.goto('data:text/html,<h1 id="title">Test</h1><input id="inp" value="hello">');
   });
 
@@ -119,7 +109,7 @@ describe('Input tools (Playwright API)', () => {
   let page: Page;
 
   before(async () => {
-    page = await context.newPage();
+    page = await env.context.newPage();
     await page.goto(`data:text/html,
       <input id="text-input" type="text" value="">
       <button id="btn" onclick="document.getElementById('result').textContent='clicked'">Click</button>
@@ -212,7 +202,7 @@ describe('Screenshot (Playwright API)', () => {
   let page: Page;
 
   before(async () => {
-    page = await context.newPage();
+    page = await env.context.newPage();
     await page.goto('data:text/html,<h1 style="color:red">Screenshot Test</h1>');
   });
 

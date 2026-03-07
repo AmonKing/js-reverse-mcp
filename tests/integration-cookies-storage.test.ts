@@ -6,27 +6,17 @@
 import {describe, it, after, before} from 'node:test';
 import assert from 'node:assert';
 
-import type {Browser, BrowserContext, Page} from '../src/third_party/index.js';
-import {chromium} from '../src/third_party/index.js';
+import type {Page} from '../src/third_party/index.js';
 import {getCdpClient} from '../src/utils/cdp.js';
+import {useBrowser} from './helpers.js';
 
-let browser: Browser;
-let context: BrowserContext;
-
-before(async () => {
-  browser = await chromium.launch({channel: 'chrome', headless: true});
-  context = await browser.newContext();
-});
-
-after(async () => {
-  await browser?.close();
-});
+const env = useBrowser();
 
 describe('Cookies via CDP', () => {
   let page: Page;
 
   before(async () => {
-    page = await context.newPage();
+    page = await env.context.newPage();
     await page.goto('data:text/html,<h1>Cookie Test</h1>');
   });
 
@@ -79,7 +69,7 @@ describe('CDP commands', () => {
   let page: Page;
 
   before(async () => {
-    page = await context.newPage();
+    page = await env.context.newPage();
     await page.goto('data:text/html,<h1>CDP Test</h1>');
   });
 
@@ -120,7 +110,7 @@ describe('CDP commands', () => {
     await client.send('Network.enable');
 
     await page.goto('data:text/html,<h1>Event test</h1>');
-    await page.evaluate(() => new Promise(r => setTimeout(r, 200)));
+    await page.waitForLoadState('load');
 
     client.off('Network.requestWillBeSent', handler);
     await client.send('Network.disable');

@@ -3,33 +3,21 @@
  * Uses page.route() to intercept real HTTP requests for testing.
  */
 
-import {describe, it, after, before} from 'node:test';
+import {describe, it} from 'node:test';
 import assert from 'node:assert';
 
-import type {Browser, BrowserContext, HTTPRequest} from '../src/third_party/index.js';
-import {chromium} from '../src/third_party/index.js';
+import type {HTTPRequest} from '../src/third_party/index.js';
+import type {Protocol} from 'devtools-protocol';
+import {getCdpClient} from '../src/utils/cdp.js';
+import {useBrowser, createRoutedPage, waitFor} from './helpers.js';
 
-let browser: Browser;
-let context: BrowserContext;
-
-before(async () => {
-  browser = await chromium.launch({channel: 'chrome', headless: true});
-  context = await browser.newContext();
-});
-
-after(async () => {
-  await browser?.close();
-});
+const env = useBrowser();
 
 describe('Network requests (Playwright Request API)', () => {
   it('captures request events via route', async () => {
-    const page = await context.newPage();
+    const page = await createRoutedPage(env.context);
     const requests: HTTPRequest[] = [];
     page.on('request', req => requests.push(req));
-
-    await page.route('**/*', route => {
-      route.fulfill({status: 200, contentType: 'text/html', body: '<h1>Test</h1>'});
-    });
 
     await page.goto('http://localhost/test-page');
     assert.ok(requests.length > 0);
@@ -37,13 +25,9 @@ describe('Network requests (Playwright Request API)', () => {
   });
 
   it('request.method() works', async () => {
-    const page = await context.newPage();
+    const page = await createRoutedPage(env.context);
     const requests: HTTPRequest[] = [];
     page.on('request', req => requests.push(req));
-
-    await page.route('**/*', route => {
-      route.fulfill({status: 200, contentType: 'text/html', body: '<h1>OK</h1>'});
-    });
 
     await page.goto('http://localhost/test-method');
     const navReq = requests.find(r => r.url().includes('test-method'));
@@ -53,13 +37,9 @@ describe('Network requests (Playwright Request API)', () => {
   });
 
   it('request.resourceType() returns document for navigation', async () => {
-    const page = await context.newPage();
+    const page = await createRoutedPage(env.context);
     const requests: HTTPRequest[] = [];
     page.on('request', req => requests.push(req));
-
-    await page.route('**/*', route => {
-      route.fulfill({status: 200, contentType: 'text/html', body: '<h1>OK</h1>'});
-    });
 
     await page.goto('http://localhost/test-type');
     const navReq = requests.find(r => r.url().includes('test-type'));
@@ -69,13 +49,9 @@ describe('Network requests (Playwright Request API)', () => {
   });
 
   it('request.headers() returns object', async () => {
-    const page = await context.newPage();
+    const page = await createRoutedPage(env.context);
     const requests: HTTPRequest[] = [];
     page.on('request', req => requests.push(req));
-
-    await page.route('**/*', route => {
-      route.fulfill({status: 200, contentType: 'text/html', body: '<h1>OK</h1>'});
-    });
 
     await page.goto('http://localhost/test-headers');
     const navReq = requests.find(r => r.url().includes('test-headers'));
@@ -85,11 +61,7 @@ describe('Network requests (Playwright Request API)', () => {
   });
 
   it('response via waitForResponse', async () => {
-    const page = await context.newPage();
-
-    await page.route('**/*', route => {
-      route.fulfill({status: 200, contentType: 'text/html', body: '<h1>OK</h1>'});
-    });
+    const page = await createRoutedPage(env.context);
 
     const [response] = await Promise.all([
       page.waitForResponse('**/test-resp'),
@@ -102,13 +74,7 @@ describe('Network requests (Playwright Request API)', () => {
   });
 
   it('request.postData() returns string for POST', async () => {
-    const page = await context.newPage();
-
-    // Route everything - the initial page AND the fetch POST
-    await page.route('**/*', route => {
-      route.fulfill({status: 200, contentType: 'text/html', body: '<h1>OK</h1>'});
-    });
-
+    const page = await createRoutedPage(env.context);
     await page.goto('http://localhost/main-page');
 
     const requests: HTTPRequest[] = [];
@@ -131,11 +97,7 @@ describe('Network requests (Playwright Request API)', () => {
   });
 
   it('request.failure() returns null for successful requests', async () => {
-    const page = await context.newPage();
-
-    await page.route('**/*', route => {
-      route.fulfill({status: 200, contentType: 'text/html', body: '<h1>OK</h1>'});
-    });
+    const page = await createRoutedPage(env.context);
 
     const [response] = await Promise.all([
       page.waitForResponse('**/test-ok'),
@@ -147,13 +109,9 @@ describe('Network requests (Playwright Request API)', () => {
   });
 
   it('request.isNavigationRequest() works', async () => {
-    const page = await context.newPage();
+    const page = await createRoutedPage(env.context);
     const requests: HTTPRequest[] = [];
     page.on('request', req => requests.push(req));
-
-    await page.route('**/*', route => {
-      route.fulfill({status: 200, contentType: 'text/html', body: '<h1>Nav</h1>'});
-    });
 
     await page.goto('http://localhost/test-nav');
     const navReq = requests.find(r => r.isNavigationRequest());
@@ -162,13 +120,9 @@ describe('Network requests (Playwright Request API)', () => {
   });
 
   it('request.redirectedFrom() returns null for non-redirect', async () => {
-    const page = await context.newPage();
+    const page = await createRoutedPage(env.context);
     const requests: HTTPRequest[] = [];
     page.on('request', req => requests.push(req));
-
-    await page.route('**/*', route => {
-      route.fulfill({status: 200, contentType: 'text/html', body: '<h1>OK</h1>'});
-    });
 
     await page.goto('http://localhost/test-noredir');
     const req = requests[0];
@@ -178,13 +132,9 @@ describe('Network requests (Playwright Request API)', () => {
   });
 
   it('request.frame() returns frame', async () => {
-    const page = await context.newPage();
+    const page = await createRoutedPage(env.context);
     const requests: HTTPRequest[] = [];
     page.on('request', req => requests.push(req));
-
-    await page.route('**/*', route => {
-      route.fulfill({status: 200, contentType: 'text/html', body: '<h1>Frame</h1>'});
-    });
 
     await page.goto('http://localhost/test-frame');
     assert.ok(requests[0].frame());
@@ -195,27 +145,21 @@ describe('Network requests (Playwright Request API)', () => {
 describe('Console messages via CDP', () => {
   // NOTE: Patchright does NOT fire Playwright-level 'console'/'pageerror' events
   // (anti-detection feature). Console collection must use CDP Runtime.consoleAPICalled.
-  // This is a known limitation that may affect ConsoleCollector.
 
   it('captures console.log via CDP Runtime.consoleAPICalled', async () => {
-    const page = await context.newPage();
-    const client = await page.context().newCDPSession(page);
+    const page = await createRoutedPage(env.context, {
+      body: '<h1>Test</h1><script>console.log("hello from test")</script>',
+    });
+    const client = await getCdpClient(page);
     await client.send('Runtime.enable');
 
     const messages: string[] = [];
-    client.on('Runtime.consoleAPICalled', (event: any) => {
-      messages.push(event.args.map((a: any) => a.value).join(' '));
+    client.on('Runtime.consoleAPICalled', (event: Protocol.Runtime.ConsoleAPICalledEvent) => {
+      messages.push(event.args.map(a => a.value).join(' '));
     });
 
-    await page.route('**/*', route => {
-      route.fulfill({
-        status: 200,
-        contentType: 'text/html',
-        body: '<h1>Test</h1><script>console.log("hello from test")</script>',
-      });
-    });
     await page.goto('http://localhost/console-cdp');
-    await new Promise(r => setTimeout(r, 300));
+    await waitFor(() => messages.some(m => m.includes('hello from test')));
 
     assert.ok(
       messages.some(m => m.includes('hello from test')),
@@ -226,24 +170,19 @@ describe('Console messages via CDP', () => {
   });
 
   it('captures console.warn type via CDP', async () => {
-    const page = await context.newPage();
-    const client = await page.context().newCDPSession(page);
+    const page = await createRoutedPage(env.context, {
+      body: '<h1>Test</h1><script>console.warn("warn test")</script>',
+    });
+    const client = await getCdpClient(page);
     await client.send('Runtime.enable');
 
     const types: string[] = [];
-    client.on('Runtime.consoleAPICalled', (event: any) => {
+    client.on('Runtime.consoleAPICalled', (event: Protocol.Runtime.ConsoleAPICalledEvent) => {
       types.push(event.type);
     });
 
-    await page.route('**/*', route => {
-      route.fulfill({
-        status: 200,
-        contentType: 'text/html',
-        body: '<h1>Test</h1><script>console.warn("warn test")</script>',
-      });
-    });
     await page.goto('http://localhost/console-warn-cdp');
-    await new Promise(r => setTimeout(r, 300));
+    await waitFor(() => types.includes('warning'));
 
     assert.ok(types.includes('warning'), `Expected 'warning' in types: ${JSON.stringify(types)}`);
     await client.send('Runtime.disable');
@@ -251,24 +190,19 @@ describe('Console messages via CDP', () => {
   });
 
   it('captures uncaught exception via CDP', async () => {
-    const page = await context.newPage();
-    const client = await page.context().newCDPSession(page);
+    const page = await createRoutedPage(env.context, {
+      body: '<h1>Test</h1><script>throw new Error("test error")</script>',
+    });
+    const client = await getCdpClient(page);
     await client.send('Runtime.enable');
 
     const exceptions: string[] = [];
-    client.on('Runtime.exceptionThrown', (event: any) => {
+    client.on('Runtime.exceptionThrown', (event: Protocol.Runtime.ExceptionThrownEvent) => {
       exceptions.push(event.exceptionDetails?.text ?? '');
     });
 
-    await page.route('**/*', route => {
-      route.fulfill({
-        status: 200,
-        contentType: 'text/html',
-        body: '<h1>Test</h1><script>throw new Error("test error")</script>',
-      });
-    });
     await page.goto('http://localhost/error-cdp');
-    await new Promise(r => setTimeout(r, 300));
+    await waitFor(() => exceptions.some(e => e.includes('Uncaught')));
 
     assert.ok(
       exceptions.some(e => e.includes('Uncaught')),
@@ -281,11 +215,7 @@ describe('Console messages via CDP', () => {
 
 describe('Response API (Playwright)', () => {
   it('response.status() returns number', async () => {
-    const page = await context.newPage();
-
-    await page.route('**/*', route => {
-      route.fulfill({status: 201, contentType: 'text/html', body: '<h1>Created</h1>'});
-    });
+    const page = await createRoutedPage(env.context, {status: 201, body: '<h1>Created</h1>'});
 
     const [response] = await Promise.all([
       page.waitForResponse('**/test-status'),
@@ -297,15 +227,9 @@ describe('Response API (Playwright)', () => {
   });
 
   it('response.allHeaders() is async and returns headers', async () => {
-    const page = await context.newPage();
-
-    await page.route('**/*', route => {
-      route.fulfill({
-        status: 200,
-        contentType: 'text/html',
-        headers: {'x-custom': 'test-value'},
-        body: '<h1>Headers</h1>',
-      });
+    const page = await createRoutedPage(env.context, {
+      headers: {'x-custom': 'test-value'},
+      body: '<h1>Headers</h1>',
     });
 
     const [response] = await Promise.all([
@@ -320,11 +244,7 @@ describe('Response API (Playwright)', () => {
   });
 
   it('response.body() returns Buffer', async () => {
-    const page = await context.newPage();
-
-    await page.route('**/*', route => {
-      route.fulfill({status: 200, contentType: 'text/html', body: '<h1>Body content</h1>'});
-    });
+    const page = await createRoutedPage(env.context, {body: '<h1>Body content</h1>'});
 
     const [response] = await Promise.all([
       page.waitForResponse('**/test-body'),
