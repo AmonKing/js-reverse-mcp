@@ -62,7 +62,7 @@ export async function getFormattedResponseBody(
   sizeLimit = BODY_CONTEXT_SIZE_LIMIT,
 ): Promise<string | undefined> {
   try {
-    const responseBuffer = await withTimeout(httpResponse.buffer(), BODY_FETCH_TIMEOUT_MS);
+    const responseBuffer = await withTimeout(httpResponse.body(), BODY_FETCH_TIMEOUT_MS);
 
     if (isUtf8(responseBuffer)) {
       const responseAsTest = responseBuffer.toString('utf-8');
@@ -92,10 +92,9 @@ export async function getFormattedRequestBody(
     }
 
     try {
-      const fetchData = await withTimeout(httpRequest.fetchPostData(), BODY_FETCH_TIMEOUT_MS);
-
-      if (fetchData) {
-        return `${getSizeLimitedString(fetchData, sizeLimit)}`;
+      const postBuffer = httpRequest.postDataBuffer();
+      if (postBuffer) {
+        return `${getSizeLimitedString(postBuffer.toString('utf-8'), sizeLimit)}`;
       }
     } catch {
       return `<not available anymore>`;

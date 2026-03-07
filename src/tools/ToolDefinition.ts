@@ -113,7 +113,7 @@ export type Context = Readonly<{
   waitForTextOnPage(params: {
     text: string;
     timeout?: number | undefined;
-  }): Promise<Element>;
+  }): Promise<void>;
   getDevToolsData(): Promise<DevToolsData>;
   /**
    * Returns a reqid for a cdpRequestId.

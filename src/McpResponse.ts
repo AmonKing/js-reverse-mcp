@@ -27,7 +27,6 @@ import type {McpContext} from './McpContext.js';
 import type {
   ConsoleMessage,
   ImageContent,
-  ResourceType,
   TextContent,
 } from './third_party/index.js';
 import type {ImageContentData, Response} from './tools/ToolDefinition.js';
@@ -43,7 +42,7 @@ export class McpResponse implements Response {
   #networkRequestsOptions?: {
     include: boolean;
     pagination?: PaginationOptions;
-    resourceTypes?: ResourceType[];
+    resourceTypes?: string[];
     includePreservedRequests?: boolean;
     networkRequestIdInDevToolsUI?: number;
   };
@@ -68,7 +67,7 @@ export class McpResponse implements Response {
   setIncludeNetworkRequests(
     value: boolean,
     options?: PaginationOptions & {
-      resourceTypes?: ResourceType[];
+      resourceTypes?: string[];
       includePreservedRequests?: boolean;
       networkRequestIdInDevToolsUI?: number;
     },
