@@ -21,11 +21,23 @@ export {
   type TextContent,
 } from '@modelcontextprotocol/sdk/types.js';
 export {z as zod} from 'zod';
-export {
+
+// Patchright (Playwright API)
+export {chromium} from 'patchright';
+export type {
+  Browser,
+  BrowserContext,
+  Page,
+  Frame,
+  CDPSession,
+  Request as HTTPRequest,
+  Response as HTTPResponse,
+  ConsoleMessage,
+  Dialog,
   Locator,
-  PredefinedNetworkConditions,
-  CDPSessionEvent,
-} from 'puppeteer-core';
-export {default as puppeteer} from 'puppeteer-core';
-export type * from 'puppeteer-core';
-export type {CdpPage} from 'puppeteer-core/internal/cdp/Page.js';
+  JSHandle,
+  ElementHandle,
+} from 'patchright';
+
+// CDP Protocol types (previously from puppeteer-core)
+export type {Protocol} from 'devtools-protocol';
