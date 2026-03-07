@@ -27,14 +27,14 @@
     "LICENSE",
     "!*.tsbuildinfo"
   ],
-  "repository": "zhizhuodemao/js-reverse-mcp",
-  "author": "zhizhuodemao",
+  "repository": "AmonKing/js-reverse-mcp",
+  "author": "AmonKing",
   "license": "Apache-2.0",
   "bugs": {
-    "url": "https://github.com/zhizhuodemao/js-reverse-mcp/issues"
+    "url": "https://github.com/AmonKing/js-reverse-mcp/issues"
   },
-  "homepage": "https://github.com/zhizhuodemao/js-reverse-mcp#readme",
-  "mcpName": "io.github.zhizhuodemao/js-reverse-mcp",
+  "homepage": "https://github.com/AmonKing/js-reverse-mcp#readme",
+  "mcpName": "io.github.AmonKing/js-reverse-mcp",
   "devDependencies": {
     "@eslint/js": "^9.35.0",
     "@modelcontextprotocol/sdk": "1.21.1",
