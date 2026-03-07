@@ -321,7 +321,8 @@ class PageIssueSubscriber {
     this.#session = await getCdpClient(this.#page);
     this.#resetIssueAggregator();
     this.#page.on('framenavigated', this.#onFrameNavigated);
-    this.#session.on('Audits.issueAdded', this.#onIssueAdded);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    this.#session.on('Audits.issueAdded', this.#onIssueAdded as any);
     try {
       await this.#session.send('Audits.enable');
     } catch (error) {
@@ -334,7 +335,8 @@ class PageIssueSubscriber {
     this.#seenIssues.clear();
     this.#page.off('framenavigated', this.#onFrameNavigated);
     if (this.#session) {
-      this.#session.off('Audits.issueAdded', this.#onIssueAdded);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      this.#session.off('Audits.issueAdded', this.#onIssueAdded as any);
       void this.#session.send('Audits.disable').catch(() => {});
     }
     if (this.#issueAggregator) {

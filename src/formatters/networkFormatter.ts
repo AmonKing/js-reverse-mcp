@@ -25,12 +25,11 @@ export function getShortDescriptionForRequest(
   id: number,
   selectedInDevToolsUI = false,
 ): string {
-  // TODO truncate the URL
-  return `reqid=${id} ${request.method()} ${request.url()} ${getStatusFromRequest(request)}${selectedInDevToolsUI ? ` [selected in the DevTools Network panel]` : ''}`;
+  return `reqid=${id} ${request.method()} ${request.url()}${selectedInDevToolsUI ? ` [selected in the DevTools Network panel]` : ''}`;
 }
 
-export function getStatusFromRequest(request: HTTPRequest): string {
-  const httpResponse = request.response();
+export async function getStatusFromRequest(request: HTTPRequest): Promise<string> {
+  const httpResponse = await request.response();
   const failure = request.failure();
   let status: string;
   if (httpResponse) {
@@ -84,24 +83,34 @@ export async function getFormattedRequestBody(
   httpRequest: HTTPRequest,
   sizeLimit: number = BODY_CONTEXT_SIZE_LIMIT,
 ): Promise<string | undefined> {
-  if (httpRequest.hasPostData()) {
-    const data = httpRequest.postData();
+  const data = httpRequest.postData();
+  if (data) {
+    return `${getSizeLimitedString(data, sizeLimit)}`;
+  }
 
-    if (data) {
-      return `${getSizeLimitedString(data, sizeLimit)}`;
+  try {
+    const postBuffer = httpRequest.postDataBuffer();
+    if (postBuffer) {
+      return `${getSizeLimitedString(postBuffer.toString('utf-8'), sizeLimit)}`;
     }
-
-    try {
-      const postBuffer = httpRequest.postDataBuffer();
-      if (postBuffer) {
-        return `${getSizeLimitedString(postBuffer.toString('utf-8'), sizeLimit)}`;
-      }
-    } catch {
-      return `<not available anymore>`;
-    }
+  } catch {
+    return `<not available anymore>`;
   }
 
   return;
+}
+
+/**
+ * Build redirect chain by walking redirectedFrom() links.
+ */
+export function getRedirectChain(request: HTTPRequest): HTTPRequest[] {
+  const chain: HTTPRequest[] = [];
+  let current = request.redirectedFrom();
+  while (current) {
+    chain.push(current);
+    current = current.redirectedFrom();
+  }
+  return chain;
 }
 
 function getSizeLimitedString(text: string, sizeLimit: number) {

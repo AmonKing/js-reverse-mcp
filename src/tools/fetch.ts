@@ -54,7 +54,7 @@ export const interceptRequest = defineTool({
     // Lazy enable: start interception on first rule
     if (!interceptor.isEnabled()) {
       const page = context.getSelectedPage();
-      const client = getCdpClient(page);
+      const client = await getCdpClient(page);
       await interceptor.enable(client);
     }
 

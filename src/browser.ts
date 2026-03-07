@@ -46,12 +46,10 @@ export async function ensureBrowserConnected(options: {
     throw new Error('Either browserURL or wsEndpoint must be provided');
   }
 
-  const connectOptions: Parameters<typeof chromium.connectOverCDP>[1] = {
-    headers: options.wsHeaders,
-  };
-
   logger('Connecting Patchright to ', endpoint);
-  browser = await chromium.connectOverCDP(endpoint, connectOptions);
+  browser = await chromium.connectOverCDP(endpoint, {
+    headers: options.wsHeaders,
+  });
   logger('Connected Patchright');
 
   if (options.initScript) {
