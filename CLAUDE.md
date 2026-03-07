@@ -15,13 +15,10 @@ npm run build
 npm test
 
 # Run a single test file (after building)
-node --require ./build/tests/setup.js --no-warnings=ExperimentalWarning --test-reporter spec --test-force-exit --test "build/tests/path/to/test.test.js"
+node --no-warnings=ExperimentalWarning --test-reporter spec --test-force-exit --test "build/tests/path/to/test.test.js"
 
 # Run only tests marked with { only: true }
 npm run test:only
-
-# Update test snapshots
-npm run test:update-snapshots
 
 # Type checking without emitting
 npm run typecheck
@@ -50,7 +47,7 @@ npx @modelcontextprotocol/inspector node build/src/index.js
 
 ## Architecture Overview
 
-This is an MCP (Model Context Protocol) server that exposes Chrome DevTools functionality to AI coding assistants via Puppeteer.
+This is an MCP (Model Context Protocol) server that exposes Chrome DevTools functionality to AI coding assistants via Patchright (Playwright anti-detection fork).
 
 ### Core Components
 
@@ -87,17 +84,18 @@ Tool categories are defined in `src/tools/categories.ts` and can be disabled via
 
 ### Third-Party Integration
 
-- **`src/third_party/index.ts`**: Re-exports from bundled dependencies (puppeteer, @modelcontextprotocol/sdk, zod).
+- **`src/third_party/index.ts`**: Re-exports from bundled dependencies (patchright, @modelcontextprotocol/sdk, zod).
 
 - **`chrome-devtools-frontend`**: Used for performance trace analysis and issue descriptions. Included via tsconfig.json.
 
 ### Testing
 
-Tests use Node.js built-in test runner. Test files mirror source structure under `tests/`. Snapshots are stored alongside test files with `.snapshot` extension.
+Tests use Node.js built-in test runner (`node --test`). Test files are in `tests/`:
 
-- `tests/setup.ts`: Configures snapshot paths and serializers
-- `tests/server.ts`: Test utilities for MCP server testing
-- `tests/utils.ts`: Shared test helpers
+- `tests/unit-*.test.ts`: Unit tests (formatters, pagination, mutex)
+- `tests/integration-*.test.ts`: Integration tests (browser lifecycle, pages, network, console, frames, cookies)
+
+Integration tests launch real Chrome via `chromium.launch({channel: 'chrome', headless: true})`.
 
 ## Conventions
 
