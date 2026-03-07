@@ -188,4 +188,37 @@ export async function ensureBrowserLaunched(
   return browser;
 }
 
+/**
+ * Connect to an external browser (e.g. fingerprint browser) at runtime.
+ * Disconnects the current browser first if connected.
+ */
+export async function connectToBrowser(endpoint: string): Promise<Browser> {
+  if (browser?.isConnected()) {
+    try {
+      await browser.close();
+    } catch {
+      // Ignore close errors — may already be disconnected
+    }
+  }
+
+  logger('Dynamically connecting to ', endpoint);
+  browser = await chromium.connectOverCDP(endpoint);
+  logger('Connected to external browser');
+  return browser;
+}
+
+/**
+ * Disconnect the current browser. Next tool call will auto-launch a new one.
+ */
+export async function disconnectBrowser(): Promise<void> {
+  if (browser?.isConnected()) {
+    try {
+      await browser.close();
+    } catch {
+      // Ignore
+    }
+  }
+  browser = undefined;
+}
+
 export type Channel = 'stable' | 'canary' | 'beta' | 'dev';

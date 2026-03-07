@@ -203,6 +203,23 @@ export class McpResponse implements Response {
     return this.#images;
   }
 
+  /**
+   * Return text-only content without needing a McpContext.
+   * Used by tools like disconnect_browser that have no active browser.
+   */
+  handleTextOnly(): Array<TextContent | ImageContent> {
+    const content: Array<TextContent | ImageContent> = [];
+    if (this.#textResponseLines.length > 0) {
+      content.push({
+        type: 'text' as const,
+        text: this.#textResponseLines.join('\n'),
+      });
+    }
+    return content.length > 0
+      ? content
+      : [{type: 'text' as const, text: 'Done.'}];
+  }
+
   async handle(
     toolName: string,
     context: McpContext,

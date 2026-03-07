@@ -38,6 +38,7 @@ import * as fetchTools from './tools/fetch.js';
 import * as persistentScriptTools from './tools/persistent-scripts.js';
 import * as cookieTools from './tools/cookies.js';
 import * as inputTools from './tools/input.js';
+import * as browserConnectTools from './tools/browser-connect.js';
 
 // If moved update release-please config
 // x-release-please-start-version
@@ -133,19 +134,34 @@ function registerTool(tool: ToolDefinition): void {
       const guard = await toolMutex.acquire();
       try {
         logger(`${tool.name} request: ${JSON.stringify(params, null, '  ')}`);
-        const context = await getContext();
-        logger(`${tool.name} context: resolved`);
-        await context.detectOpenDevToolsWindows();
+        const isBrowserSwitch =
+          tool.name === 'connect_browser' ||
+          tool.name === 'disconnect_browser';
+        let ctx = isBrowserSwitch ? undefined : await getContext();
+        if (ctx) {
+          logger(`${tool.name} context: resolved`);
+          await ctx.detectOpenDevToolsWindows();
+        }
         const response = new McpResponse();
         await tool.handler(
           {
             params,
           },
           response,
-          context,
+          ctx as any,
         );
+        // After browser switch tools, refresh context for response handling
+        if (isBrowserSwitch) {
+          try {
+            ctx = await getContext();
+          } catch {
+            // disconnect_browser: no browser yet, skip context-dependent response
+          }
+        }
         try {
-          const content = await response.handle(tool.name, context);
+          const content = ctx
+            ? await response.handle(tool.name, ctx)
+            : response.handleTextOnly();
           return {
             content,
           };
@@ -185,6 +201,7 @@ const tools = [
   ...Object.values(persistentScriptTools),
   ...Object.values(cookieTools),
   ...Object.values(inputTools),
+  ...Object.values(browserConnectTools),
 ] as ToolDefinition[];
 
 tools.sort((a, b) => {
