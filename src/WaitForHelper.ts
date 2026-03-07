@@ -5,12 +5,12 @@
  */
 
 import {logger} from './logger.js';
-import type {Page, Protocol, CdpPage} from './third_party/index.js';
-import {getCdpClient} from './utils/cdp.js';
+import type {Page, CDPSession, Protocol} from './third_party/index.js';
 
 export class WaitForHelper {
   #abortController = new AbortController();
-  #page: CdpPage;
+  #page: Page;
+  #cdpClient: CDPSession;
   #stableDomTimeout: number;
   #stableDomFor: number;
   #expectNavigationIn: number;
@@ -18,6 +18,7 @@ export class WaitForHelper {
 
   constructor(
     page: Page,
+    cdpClient: CDPSession,
     cpuTimeoutMultiplier: number,
     networkTimeoutMultiplier: number,
   ) {
@@ -25,7 +26,8 @@ export class WaitForHelper {
     this.#stableDomFor = 100 * cpuTimeoutMultiplier;
     this.#expectNavigationIn = 100 * cpuTimeoutMultiplier;
     this.#navigationTimeout = 3000 * networkTimeoutMultiplier;
-    this.#page = page as unknown as CdpPage;
+    this.#page = page;
+    this.#cdpClient = cdpClient;
   }
 
   /**
@@ -83,8 +85,6 @@ export class WaitForHelper {
   }
 
   async waitForNavigationStarted() {
-    // Currently Puppeteer does not have API
-    // For when a navigation is about to start
     const navigationStartedPromise = new Promise<boolean>(resolve => {
       const listener = (event: Protocol.Page.FrameStartedNavigatingEvent) => {
         if (
@@ -101,10 +101,10 @@ export class WaitForHelper {
         resolve(true);
       };
 
-      getCdpClient(this.#page).on('Page.frameStartedNavigating', listener);
+      this.#cdpClient.on('Page.frameStartedNavigating', listener);
       this.#abortController.signal.addEventListener('abort', () => {
         resolve(false);
-        getCdpClient(this.#page).off('Page.frameStartedNavigating', listener);
+        this.#cdpClient.off('Page.frameStartedNavigating', listener);
       });
     });
 
@@ -139,12 +139,11 @@ export class WaitForHelper {
 
     const doAction = async () => {
       const navigationFinished = this.waitForNavigationStarted()
-        .then(navigationStated => {
-          if (navigationStated) {
+        .then(navigationStarted => {
+          if (navigationStarted) {
             return this.#page.waitForNavigation({
               timeout: this.#navigationTimeout,
               waitUntil: 'domcontentloaded',
-              signal: this.#abortController.signal,
             });
           }
           return;
