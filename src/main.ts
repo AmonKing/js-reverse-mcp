@@ -7,8 +7,6 @@
 import './polyfill.js';
 
 import fs from 'node:fs';
-import path from 'node:path';
-import {fileURLToPath} from 'node:url';
 
 import type {Channel} from './browser.js';
 import {ensureBrowserConnected, ensureBrowserLaunched} from './browser.js';
@@ -64,31 +62,10 @@ server.server.setRequestHandler(SetLevelRequestSchema, () => {
 
 let context: McpContext;
 
-const initScript = (() => {
-  if (args.initScript) {
-    return fs.readFileSync(args.initScript, 'utf-8');
-  }
-  // Default: load bundled stealth script to bypass WebDriver detection
-  const projectRoot = path.resolve(
-    path.dirname(fileURLToPath(import.meta.url)),
-    '..',
-    '..',
-  );
-  const parts: string[] = [];
-  const defaultPath = path.join(projectRoot, 'scripts', 'stealth.min.js');
-  try {
-    parts.push(fs.readFileSync(defaultPath, 'utf-8'));
-  } catch {
-    // stealth.min.js not found, continue without it
-  }
-  const patchPath = path.join(projectRoot, 'scripts', 'stealth-patch.js');
-  try {
-    parts.push(fs.readFileSync(patchPath, 'utf-8'));
-  } catch {
-    // patch not found, continue without it
-  }
-  return parts.length > 0 ? parts.join('\n') : undefined;
-})();
+// Patchright handles anti-detection natively — no stealth scripts needed
+const initScript = args.initScript
+  ? fs.readFileSync(args.initScript, 'utf-8')
+  : undefined;
 
 async function getContext(): Promise<McpContext> {
   const extraArgs: string[] = (args.chromeArg ?? []).map(String);
@@ -121,7 +98,6 @@ async function getContext(): Promise<McpContext> {
   if (context?.browser !== browser) {
     context = await McpContext.from(browser, logger, {
       experimentalDevToolsDebugging: devtools,
-      experimentalIncludeAllPages: args.experimentalIncludeAllPages,
       initScript,
     });
   }
