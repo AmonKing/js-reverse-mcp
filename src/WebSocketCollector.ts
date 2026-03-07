@@ -6,10 +6,10 @@
 
 import type {RequestInitiator} from './PageCollector.js';
 import type {
-  Browser,
+  BrowserContext,
+  CDPSession,
   Page,
   Protocol,
-  Target,
 } from './third_party/index.js';
 import {getCdpClient} from './utils/cdp.js';
 
@@ -75,8 +75,7 @@ function createIdGenerator() {
  * Listens to CDP Network events for WebSocket activity.
  */
 export class WebSocketCollector {
-  #browser: Browser;
-  #includeAllPages?: boolean;
+  #context: BrowserContext;
 
   /**
    * Storage: Page -> Array of navigations -> Array of WebSocket connections.
@@ -110,43 +109,37 @@ export class WebSocketCollector {
     }
   >();
 
+  /**
+   * CDP sessions per page for cleanup.
+   */
+  #cdpSessions = new WeakMap<Page, CDPSession>();
+
+  /**
+   * Close handlers per page.
+   */
+  #closeHandlers = new WeakMap<Page, () => void>();
+
   #maxNavigationSaved = 3;
 
-  constructor(browser: Browser, includeAllPages?: boolean) {
-    this.#browser = browser;
-    this.#includeAllPages = includeAllPages;
+  constructor(context: BrowserContext) {
+    this.#context = context;
   }
 
   async init() {
-    // @ts-expect-error includeAllPages param may not exist in older puppeteer-core
-    const pages = await this.#browser.pages(this.#includeAllPages);
+    const pages = this.#context.pages();
     for (const page of pages) {
       this.addPage(page);
     }
 
-    this.#browser.on('targetcreated', this.#onTargetCreated);
-    this.#browser.on('targetdestroyed', this.#onTargetDestroyed);
+    this.#context.on('page', this.#onPageCreated);
   }
 
   dispose() {
-    this.#browser.off('targetcreated', this.#onTargetCreated);
-    this.#browser.off('targetdestroyed', this.#onTargetDestroyed);
+    this.#context.off('page', this.#onPageCreated);
   }
 
-  #onTargetCreated = async (target: Target) => {
-    const page = await target.page();
-    if (!page) {
-      return;
-    }
+  #onPageCreated = (page: Page) => {
     this.addPage(page);
-  };
-
-  #onTargetDestroyed = async (target: Target) => {
-    const page = await target.page();
-    if (!page) {
-      return;
-    }
-    this.#cleanupPage(page);
   };
 
   addPage(page: Page) {
@@ -161,11 +154,22 @@ export class WebSocketCollector {
     this.#storage.set(page, storedLists);
     this.#connectionMap.set(page, new Map());
 
-    this.#setupCdpListeners(page);
+    void this.#setupCdpListeners(page);
+
+    // Listen for page close
+    const closeHandler = () => this.#cleanupPage(page);
+    this.#closeHandlers.set(page, closeHandler);
+    page.on('close', closeHandler);
   }
 
-  #setupCdpListeners(page: Page): void {
-    const client = getCdpClient(page);
+  async #setupCdpListeners(page: Page): Promise<void> {
+    let client: CDPSession;
+    try {
+      client = await getCdpClient(page);
+    } catch {
+      return; // Page might be closed
+    }
+    this.#cdpSessions.set(page, client);
 
     const connectionMap = this.#connectionMap.get(page)!;
     const idGenerator = this.#idGenerators.get(page)!;
@@ -190,7 +194,6 @@ export class WebSocketCollector {
         navigations[0].push(wsData);
       }
 
-      // Mark as open once created (CDP doesn't have a separate open event for ws)
       wsData.connection.status = 'open';
     };
 
@@ -205,7 +208,7 @@ export class WebSocketCollector {
       wsData.frames.push({
         requestId: event.requestId,
         direction: 'sent',
-        timestamp: event.timestamp * 1000, // Convert to ms
+        timestamp: event.timestamp * 1000,
         opcode: event.response.opcode,
         payloadData: event.response.payloadData,
       });
@@ -222,7 +225,7 @@ export class WebSocketCollector {
       wsData.frames.push({
         requestId: event.requestId,
         direction: 'received',
-        timestamp: event.timestamp * 1000, // Convert to ms
+        timestamp: event.timestamp * 1000,
         opcode: event.response.opcode,
         payloadData: event.response.payloadData,
       });
@@ -267,19 +270,17 @@ export class WebSocketCollector {
       return;
     }
 
-    // Add a new navigation
     navigations.unshift([]);
     navigations.splice(this.#maxNavigationSaved);
 
-    // Reset connection map for new navigation
     this.#connectionMap.set(page, new Map());
   }
 
   #cleanupPage(page: Page): void {
     const listeners = this.#cdpListeners.get(page);
-    if (listeners) {
+    const client = this.#cdpSessions.get(page);
+    if (listeners && client) {
       try {
-        const client = getCdpClient(page);
         client.off('Network.webSocketCreated', listeners.onCreated);
         client.off('Network.webSocketFrameSent', listeners.onFrameSent);
         client.off('Network.webSocketFrameReceived', listeners.onFrameReceived);
@@ -289,7 +290,14 @@ export class WebSocketCollector {
       }
     }
 
+    const closeHandler = this.#closeHandlers.get(page);
+    if (closeHandler) {
+      page.off('close', closeHandler);
+    }
+
+    this.#closeHandlers.delete(page);
     this.#cdpListeners.delete(page);
+    this.#cdpSessions.delete(page);
     this.#storage.delete(page);
     this.#connectionMap.delete(page);
     this.#idGenerators.delete(page);
