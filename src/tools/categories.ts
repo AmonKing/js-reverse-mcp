@@ -10,6 +10,7 @@ export enum ToolCategory {
   DEBUGGING = 'debugging',
   REVERSE_ENGINEERING = 'reverse_engineering',
   INTERCEPTION = 'interception',
+  INPUT = 'input',
 }
 
 export const labels = {
@@ -18,4 +19,5 @@ export const labels = {
   [ToolCategory.DEBUGGING]: 'Debugging',
   [ToolCategory.REVERSE_ENGINEERING]: 'JS Reverse Engineering',
   [ToolCategory.INTERCEPTION]: 'Request Interception',
+  [ToolCategory.INPUT]: 'Page Interaction',
 };

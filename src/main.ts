@@ -37,6 +37,7 @@ import * as websocketTools from './tools/websocket.js';
 import * as fetchTools from './tools/fetch.js';
 import * as persistentScriptTools from './tools/persistent-scripts.js';
 import * as cookieTools from './tools/cookies.js';
+import * as inputTools from './tools/input.js';
 
 // If moved update release-please config
 // x-release-please-start-version
@@ -183,6 +184,7 @@ const tools = [
   ...Object.values(fetchTools),
   ...Object.values(persistentScriptTools),
   ...Object.values(cookieTools),
+  ...Object.values(inputTools),
 ] as ToolDefinition[];
 
 tools.sort((a, b) => {
