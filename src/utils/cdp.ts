@@ -4,13 +4,28 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type {CDPSession, CdpPage, Page} from '../third_party/index.js';
+import type {CDPSession, Page} from '../third_party/index.js';
+
+const sessionCache = new WeakMap<Page, CDPSession>();
 
 /**
  * Get the CDP session for a page.
- * Wraps the internal Puppeteer `_client()` API with a single @ts-expect-error.
+ * Uses Playwright's public API: page.context().newCDPSession(page).
+ * Sessions are cached per page to avoid creating multiple sessions.
  */
-export function getCdpClient(page: Page | CdpPage): CDPSession {
-  // @ts-expect-error _client is internal Puppeteer API
-  return page._client();
+export async function getCdpClient(page: Page): Promise<CDPSession> {
+  let session = sessionCache.get(page);
+  if (!session) {
+    session = await page.context().newCDPSession(page);
+    sessionCache.set(page, session);
+  }
+  return session;
+}
+
+/**
+ * Invalidate the cached CDP session for a page.
+ * Call this when a page is closed or when the session needs to be recreated.
+ */
+export function invalidateCdpClient(page: Page): void {
+  sessionCache.delete(page);
 }
