@@ -9,34 +9,21 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {logger} from './logger.js';
-import type {
-  Browser,
-  ChromeReleaseChannel,
-  LaunchOptions,
-  Target,
-} from './third_party/index.js';
-import {puppeteer} from './third_party/index.js';
+import type {Browser, BrowserContext} from './third_party/index.js';
+import {chromium} from './third_party/index.js';
 
 let browser: Browser | undefined;
 
-function makeTargetFilter() {
-  const ignoredPrefixes = new Set([
-    'chrome://',
-    'chrome-extension://',
-    'chrome-untrusted://',
-  ]);
-
-  return function targetFilter(target: Target): boolean {
-    if (target.url() === 'chrome://newtab/') {
-      return true;
-    }
-    for (const prefix of ignoredPrefixes) {
-      if (target.url().startsWith(prefix)) {
-        return false;
-      }
-    }
-    return true;
-  };
+/**
+ * Get the default BrowserContext.
+ * Playwright wraps pages in BrowserContext — we always use the first/default one.
+ */
+export function getDefaultContext(browser: Browser): BrowserContext {
+  const contexts = browser.contexts();
+  if (contexts.length === 0) {
+    throw new Error('No browser context available');
+  }
+  return contexts[0];
 }
 
 export async function ensureBrowserConnected(options: {
@@ -46,37 +33,35 @@ export async function ensureBrowserConnected(options: {
   devtools: boolean;
   initScript?: string;
 }) {
-  if (browser?.connected) {
+  if (browser?.isConnected()) {
     return browser;
   }
 
-  const connectOptions: Parameters<typeof puppeteer.connect>[0] = {
-    targetFilter: makeTargetFilter(),
-    defaultViewport: null,
-    // @ts-expect-error handleDevToolsAsPage may not exist in older puppeteer-core
-    handleDevToolsAsPage: true,
-  };
-
+  let endpoint: string;
   if (options.wsEndpoint) {
-    connectOptions.browserWSEndpoint = options.wsEndpoint;
-    if (options.wsHeaders) {
-      connectOptions.headers = options.wsHeaders;
-    }
+    endpoint = options.wsEndpoint;
   } else if (options.browserURL) {
-    connectOptions.browserURL = options.browserURL;
+    endpoint = options.browserURL;
   } else {
     throw new Error('Either browserURL or wsEndpoint must be provided');
   }
 
-  logger('Connecting Puppeteer to ', JSON.stringify(connectOptions));
-  browser = await puppeteer.connect(connectOptions);
-  logger('Connected Puppeteer');
+  const connectOptions: Parameters<typeof chromium.connectOverCDP>[1] = {
+    headers: options.wsHeaders,
+  };
+
+  logger('Connecting Patchright to ', endpoint);
+  browser = await chromium.connectOverCDP(endpoint, connectOptions);
+  logger('Connected Patchright');
+
   if (options.initScript) {
-    const pages = await browser.pages();
+    const context = getDefaultContext(browser);
+    const pages = context.pages();
     for (const page of pages) {
-      await page.evaluateOnNewDocument(options.initScript);
+      await page.addInitScript(options.initScript);
     }
   }
+
   return browser;
 }
 
@@ -117,59 +102,67 @@ export async function launch(options: McpLaunchOptions): Promise<Browser> {
     });
   }
 
-  const args: LaunchOptions['args'] = [
+  const args: string[] = [
     ...(options.args ?? []),
     '--hide-crash-restore-bubble',
   ];
   if (headless) {
     args.push('--screen-info={3840x2160}');
   }
-  let puppeteerChannel: ChromeReleaseChannel | undefined;
+
+  let playwrightChannel: string | undefined;
   if (options.devtools) {
     args.push('--auto-open-devtools-for-tabs');
   }
   if (!executablePath) {
-    puppeteerChannel =
+    playwrightChannel =
       channel && channel !== 'stable'
-        ? (`chrome-${channel}` as ChromeReleaseChannel)
+        ? `chrome-${channel}`
         : 'chrome';
   }
 
   try {
-    const browser = await puppeteer.launch({
-      channel: puppeteerChannel,
-      targetFilter: makeTargetFilter(),
-      executablePath,
-      defaultViewport: null,
-      userDataDir,
-      pipe: true,
-      headless,
-      args,
-      ignoreDefaultArgs: ['--enable-automation'],
-      acceptInsecureCerts: options.acceptInsecureCerts,
-      // @ts-expect-error handleDevToolsAsPage may not exist in older puppeteer-core
-      handleDevToolsAsPage: true,
-    });
-    if (options.logFile) {
-      // FIXME: we are probably subscribing too late to catch startup logs. We
-      // should expose the process earlier or expose the getRecentLogs() getter.
-      browser.process()?.stderr?.pipe(options.logFile);
-      browser.process()?.stdout?.pipe(options.logFile);
-    }
-    if (options.viewport) {
-      const [page] = await browser.pages();
-      // @ts-expect-error internal API for now.
-      await page?.resize({
-        contentWidth: options.viewport.width,
-        contentHeight: options.viewport.height,
+    let browser: Browser;
+    if (userDataDir) {
+      const context = await chromium.launchPersistentContext(userDataDir, {
+        channel: playwrightChannel,
+        executablePath,
+        headless,
+        args,
+        ignoreDefaultArgs: ['--enable-automation'],
+        acceptDownloads: false,
+        viewport: options.viewport
+          ? {width: options.viewport.width, height: options.viewport.height}
+          : null,
+        bypassCSP: false,
       });
+      browser = context.browser()!;
+    } else {
+      browser = await chromium.launch({
+        channel: playwrightChannel,
+        executablePath,
+        headless,
+        args,
+        ignoreDefaultArgs: ['--enable-automation'],
+      });
+
+      const context = await browser.newContext({
+        viewport: options.viewport
+          ? {width: options.viewport.width, height: options.viewport.height}
+          : null,
+        acceptDownloads: false,
+      });
+      await context.newPage();
     }
+
     if (options.initScript) {
-      const pages = await browser.pages();
+      const context = getDefaultContext(browser);
+      const pages = context.pages();
       for (const page of pages) {
-        await page.evaluateOnNewDocument(options.initScript);
+        await page.addInitScript(options.initScript);
       }
     }
+
     return browser;
   } catch (error) {
     if (
@@ -190,7 +183,7 @@ export async function launch(options: McpLaunchOptions): Promise<Browser> {
 export async function ensureBrowserLaunched(
   options: McpLaunchOptions,
 ): Promise<Browser> {
-  if (browser?.connected) {
+  if (browser?.isConnected()) {
     return browser;
   }
   browser = await launch(options);
