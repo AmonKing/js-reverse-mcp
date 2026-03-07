@@ -40,11 +40,11 @@ Users can pass `--initScript path/to/stealth.js` to inject custom scripts via `p
 | infosimples/detect-headless | All green |
 | bot.sannysoft.com | All checks passed |
 
-## What does NOT pass
+## Cloudflare Turnstile
 
-| Target | Detection | Why |
-|---|---|---|
-| **Cloudflare Turnstile** | Blocked | Multi-layer detection: TLS fingerprint (JA3/JA4), HTTP/2 frame order, behavioral analysis, cryptographic proof-of-work, ML models. Not fixable via JS injection. |
+Turnstile 会弹出人机验证框（"确认您是真人"），但 **手动点击 checkbox 即可通过**。Patchright 的 CDP 隐藏足够好，Turnstile 不会 silent block，只需要一次人工交互。相比之下，原版 Playwright/Puppeteer 通常会被直接拦死。
+
+全自动绕过（无人点击）仍然不可行，因为 Turnstile 有多层检测：TLS 指纹（JA3/JA4）、HTTP/2 帧顺序、加密 proof-of-work、行为分析 ML 模型。
 
 ## Known limitations
 
